@@ -1,0 +1,22 @@
+# Secrets
+.env
+.env.*
+!.env.example
+
+# Local-only source material (may contain real names, addresses, store numbers)
+contexto.txt
+*.pdf
+octaops-dev-brief.md.html
+
+# Dependencies and build output
+node_modules/
+dist/
+.vercel/
+.netlify/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+.claude/
