@@ -2,6 +2,7 @@
 .env
 .env.*
 !.env.example
+pwd.txt
 
 # Local-only source material (may contain real names, addresses, store numbers)
 contexto.txt
