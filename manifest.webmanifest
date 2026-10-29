@@ -1,0 +1,14 @@
+{
+  "name": "OctaOps",
+  "short_name": "OctaOps",
+  "description": "Field service jobs, reports and parts for the Octagon team.",
+  "start_url": ".",
+  "scope": ".",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0b0f0e",
+  "theme_color": "#0b0f0e",
+  "icons": [
+    { "src": "icons/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ]
+}
