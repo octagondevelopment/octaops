@@ -8,6 +8,7 @@ pwd.txt
 contexto.txt
 *.pdf
 octaops-dev-brief.md.html
+Formulario*.txt
 
 # Dependencies and build output
 node_modules/
