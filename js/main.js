@@ -1,7 +1,13 @@
 import { sb } from './supabase.js';
+import { getDraft, putDraft, dirtyDrafts } from './db.js';
+import { STEPS, REPORT_COLUMNS, SAVE_TEXT, emptyDraft, rowToDraft, draftToRow, progressHtml, stepHtml } from './report.js';
 
 const app = document.getElementById('app');
 const state = {
+  step: 0,
+  draft: null,
+  saveStatus: 'local',
+  hasDraft: {},
   session: null,
   profile: null,
   profileMissing: false,
@@ -59,12 +65,174 @@ function fuseHtml(expiresAt) {
 function jobCard(job) {
   const store = job.store_name || (job.store_number ? `Store ${job.store_number}` : 'No store');
   const asset = [job.serial_number ? `S/N ${job.serial_number}` : '', job.error_code ? `Error ${job.error_code}` : ''].filter(Boolean).join(' · ');
-  return `<article class="card">
+  return `<a class="card card-link" href="#/job/${esc(job.id)}">
     <div class="job-head"><h3 class="job-store">${esc(store)}</h3><span class="chip chip-${esc(job.status)}">${esc(STATUS_LABEL[job.status] || job.status)}</span></div>
     <p class="job-issue">${esc(job.issue || job.request_class || 'No issue described')}</p>
     <p class="job-meta"><b>#${esc(job.work_task_number)}</b>${job.priority ? ` · ${esc(job.priority)}` : ''}${asset ? `<br>${esc(asset)}` : ''}</p>
     ${fuseHtml(job.expires_at)}
-  </article>`;
+  </a>`;
+}
+
+const fmtDate = (iso) => {
+  if (!iso) return '';
+  const [y, m, d] = String(iso).slice(0, 10).split('-').map(Number);
+  return new Date(y, m - 1, d).toLocaleDateString('en-CA', { year: 'numeric', month: 'short', day: 'numeric' });
+};
+
+function kv(label, value, href) {
+  if (value === null || value === undefined || value === '') return '';
+  const text = esc(value);
+  const body = href ? `<a href="${esc(href)}" ${href.startsWith('http') ? 'target="_blank" rel="noopener noreferrer"' : ''}>${text}</a>` : text;
+  return `<div class="kv"><span class="k">${esc(label)}</span><span class="v">${body}</span></div>`;
+}
+
+const tel = (n) => (n ? `tel:${String(n).replace(/[^\d+]/g, '')}` : '');
+const maps = (a) => (a ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(a)}` : '');
+
+function section(title, rows) {
+  const body = rows.filter(Boolean).join('');
+  return body ? `<section class="card section"><h3>${esc(title)}</h3>${body}</section>` : '';
+}
+
+function jobDetailView(job) {
+  if (state.jobs === null) return `<main class="screen"><div class="screen-body"><a class="back" href="#/">‹ Jobs</a><div class="empty"><p>Loading job…</p></div></div></main>`;
+  if (!job) return `<main class="screen"><div class="screen-body"><a class="back" href="#/">‹ Jobs</a><div class="empty"><h2>Job not found</h2><p>It may have been reassigned.</p></div></div></main>`;
+  const store = job.store_name || (job.store_number ? `Store ${job.store_number}` : 'No store');
+  const closed = job.status === 'awaiting_approval' || job.status === 'invoiced';
+  const label = closed ? 'View report' : state.hasDraft[job.id] ? 'Continue report' : 'Start report';
+  const photos = (job.photo_urls || []).map((u, i) => kv(`Photo ${i + 1}`, 'Open photo', u)).join('');
+  return `<main class="screen">
+    <div class="screen-body">
+      <a class="back" href="#/">‹ Jobs</a>
+      <header class="detail-head">
+        <div class="job-head"><h1 class="detail-title">${esc(store)}</h1><span class="chip chip-${esc(job.status)}">${esc(STATUS_LABEL[job.status] || job.status)}</span></div>
+        <p class="job-meta"><b>#${esc(job.work_task_number)}</b>${job.priority ? ` · ${esc(job.priority)}` : ''}</p>
+        ${fuseHtml(job.expires_at)}
+      </header>
+      <div class="stack">
+        ${section('Request', [kv('Category', job.request_class), kv('Summary', job.request_summary), kv('Request number', job.request_number), kv('Dispatched', fmtDate(job.dispatched_at)), kv('Requested', job.request_at ? new Date(job.request_at).toLocaleString('en-CA', { dateStyle: 'medium', timeStyle: 'short' }) : ''), kv('Expected arrival', job.expected_arrival), kv('Expected completion', job.expected_completion), photos])}
+        ${section('Where', [kv('Address', job.address, maps(job.address)), kv('Store phone', job.store_phone, tel(job.store_phone)), kv('Store notes', job.dispatch_notes)])}
+        ${section('Contacts', [kv('Requested by', job.requester_name), kv('Phone', job.requester_phone, tel(job.requester_phone)), kv('Title', job.requester_title), kv('Facilities', job.facilities_contact_name), kv('Facilities phone', job.facilities_contact_phone, tel(job.facilities_contact_phone)), kv('Facilities email', job.facilities_contact_email, job.facilities_contact_email ? `mailto:${job.facilities_contact_email}` : '')])}
+        ${section('Equipment', [kv('Asset', job.asset_name), kv('Tag', job.asset_tag), kv('Serial number', job.serial_number), kv('Error code', job.error_code), kv('Installed', fmtDate(job.asset_install_date)), kv('Partner serial', job.partner_serial)])}
+      </div>
+    </div>
+    <div class="sticky-bar"><a class="btn" href="#/job/${esc(job.id)}/report">${label}</a></div>
+  </main>`;
+}
+
+const LOCKED = ['submitted', 'approved'];
+
+function reportView(job) {
+  if (state.jobs === null) return `<main class="screen"><div class="screen-body"><div class="empty"><p>Loading…</p></div></div></main>`;
+  if (!job) return `<main class="screen"><div class="screen-body"><a class="back" href="#/">‹ Jobs</a><div class="empty"><h2>Job not found</h2></div></div></main>`;
+  const d = state.draft;
+  const back = `<a class="back" href="#/job/${esc(job.id)}">‹ Job</a>`;
+  if (!d || d.job_id !== job.id) return `<main class="screen"><div class="screen-body">${back}<div class="empty"><p>Opening report…</p></div></div></main>`;
+  const locked = LOCKED.includes(d.status);
+  const last = state.step === STEPS.length - 1;
+  const ref = `<div class="card ref">
+    ${kv('WT', job.work_task_number)}${kv('Store #', job.store_number)}${kv('Address', job.address)}${kv('Issue', job.issue || job.request_class)}${kv('Dispatched', fmtDate(job.dispatched_at))}
+  </div>`;
+  const banner = locked ? '<p class="success" role="status">This report was already sent, so it can only be read.</p>' : '';
+  return `<main class="screen">
+    <div class="screen-body">
+      <header class="rep-top">${back}<span class="save" id="save-status" role="status">${esc(SAVE_TEXT[state.saveStatus])}</span></header>
+      ${ref}
+      ${banner}
+      ${progressHtml(state.step)}
+      <div class="step-body">${stepHtml(STEPS[state.step].id, d, locked)}</div>
+    </div>
+    <div class="sticky-bar actions">
+      <button class="btn btn-quiet" data-action="step-back">${state.step === 0 ? 'Close' : 'Back'}</button>
+      <button class="btn" data-action="${last ? 'finish' : 'step-next'}">${last ? 'Save and close' : 'Next'}</button>
+    </div>
+  </main>`;
+}
+
+function route() {
+  const m = location.hash.match(/^#\/job\/([0-9a-fA-F-]+)(\/report)?$/);
+  return m ? { view: m[2] ? 'report' : 'job', id: m[1] } : { view: 'list' };
+}
+
+function updateSaveLabel() {
+  const el = document.getElementById('save-status');
+  if (el) el.textContent = SAVE_TEXT[state.saveStatus];
+}
+
+async function pushDraft(d) {
+  const { error } = await sb.from('reports').upsert(draftToRow(d, state.session.user.id), { onConflict: 'job_id' });
+  return !error;
+}
+
+let syncTimer;
+function scheduleSync() {
+  clearTimeout(syncTimer);
+  syncTimer = setTimeout(syncNow, 1500);
+}
+
+async function syncNow() {
+  clearTimeout(syncTimer);
+  const d = state.draft;
+  if (!d || !d.dirty || !state.session || LOCKED.includes(d.status)) return;
+  if (!navigator.onLine) {
+    state.saveStatus = 'offline';
+    return updateSaveLabel();
+  }
+  const stamp = d.updated_at;
+  const ok = await pushDraft(d);
+  if (ok && d.updated_at === stamp) {
+    d.dirty = false;
+    await putDraft(d);
+  }
+  state.saveStatus = ok ? (d.dirty ? 'local' : 'synced') : 'error';
+  updateSaveLabel();
+}
+
+async function flushAll() {
+  if (!state.session) return;
+  for (const d of await dirtyDrafts()) {
+    if (state.draft && state.draft.job_id === d.job_id) continue;
+    if (await pushDraft(d)) {
+      d.dirty = false;
+      await putDraft(d);
+    }
+  }
+  syncNow();
+}
+
+async function openReport(id) {
+  const job = state.jobs?.find((j) => j.id === id);
+  if (!job) return;
+  state.step = 0;
+  state.draft = null;
+  render();
+  let draft = await getDraft(id);
+  let row = null;
+  if (navigator.onLine) {
+    const res = await sb.from('reports').select(REPORT_COLUMNS).eq('job_id', id).maybeSingle();
+    row = res.data;
+  }
+  if (!draft && row) draft = rowToDraft(row, job);
+  if (!draft) draft = emptyDraft(job);
+  if (row) draft.status = row.status;
+  if (route().view !== 'report' || route().id !== id) return;
+  state.draft = draft;
+  state.saveStatus = draft.dirty ? (navigator.onLine ? 'local' : 'offline') : row ? 'synced' : 'local';
+  render();
+  if (draft.dirty) scheduleSync();
+}
+
+async function checkDraft(id) {
+  const had = !!state.hasDraft[id];
+  const found = !!(await getDraft(id));
+  state.hasDraft[id] = found;
+  if (found !== had && route().view === 'job') render();
+}
+
+function enterRoute() {
+  const r = route();
+  if (r.view === 'report') openReport(r.id);
+  else if (r.view === 'job') checkDraft(r.id);
 }
 
 function matchesQuery(job) {
@@ -184,14 +352,22 @@ function passwordSheet() {
 }
 
 function render() {
-  app.innerHTML = state.session ? homeView() : loginView();
+  if (!state.session) {
+    app.innerHTML = loginView();
+    return;
+  }
+  const r = route();
+  const job = r.view === 'list' ? null : state.jobs?.find((j) => j.id === r.id);
+  if (r.view === 'job') app.innerHTML = jobDetailView(job);
+  else if (r.view === 'report') app.innerHTML = reportView(job);
+  else app.innerHTML = homeView();
 }
 
 async function loadHome() {
   const uid = state.session.user.id;
   const [profile, jobs, parts] = await Promise.all([
     sb.from('profiles').select('full_name, role').eq('id', uid).maybeSingle(),
-    sb.from('jobs').select('id, work_task_number, request_number, store_number, store_name, priority, issue, request_class, serial_number, error_code, status, expires_at').order('expires_at', { ascending: true }),
+    sb.from('jobs').select('*').order('expires_at', { ascending: true }),
     sb.from('parts').select('sku', { count: 'exact', head: true }),
   ]);
   state.profile = profile.data;
@@ -200,6 +376,7 @@ async function loadHome() {
   state.jobs = jobs.data || [];
   state.partsCount = parts.count;
   render();
+  enterRoute();
 }
 
 async function signIn(form) {
@@ -260,10 +437,34 @@ app.addEventListener('submit', (e) => {
 });
 
 app.addEventListener('input', (e) => {
-  if (e.target.id !== 'q') return;
-  state.query = e.target.value;
-  document.getElementById('job-list').innerHTML = jobList();
+  if (e.target.id === 'q') {
+    state.query = e.target.value;
+    document.getElementById('job-list').innerHTML = jobList();
+    return;
+  }
+  const field = e.target.dataset?.field;
+  if (field && state.draft && !LOCKED.includes(state.draft.status)) {
+    state.draft[field] = e.target.value;
+    markDirty();
+  }
 });
+
+function markDirty() {
+  const d = state.draft;
+  d.dirty = true;
+  d.updated_at = Date.now();
+  putDraft(d);
+  state.hasDraft[d.job_id] = true;
+  state.saveStatus = navigator.onLine ? 'local' : 'offline';
+  updateSaveLabel();
+  scheduleSync();
+}
+
+function goStep(delta) {
+  state.step = Math.min(STEPS.length - 1, Math.max(0, state.step + delta));
+  render();
+  window.scrollTo(0, 0);
+}
 
 app.addEventListener('click', async (e) => {
   const tab = e.target.closest('[data-tab]');
@@ -283,6 +484,22 @@ app.addEventListener('click', async (e) => {
       el.setAttribute('aria-label', show ? 'Hide password' : 'Show password');
       break;
     }
+    case 'set-overtime':
+      if (state.draft && !LOCKED.includes(state.draft.status)) {
+        state.draft.overtime = el.dataset.value === 'yes';
+        markDirty();
+        render();
+      }
+      break;
+    case 'step-next': goStep(1); break;
+    case 'step-back':
+      if (state.step === 0) location.hash = `#/job/${route().id}`;
+      else goStep(-1);
+      break;
+    case 'finish':
+      await syncNow();
+      location.hash = `#/job/${route().id}`;
+      break;
     case 'open-sheet': state.sheet = 'account'; render(); break;
     case 'change-password':
       state.sheet = 'password';
@@ -306,12 +523,24 @@ sb.auth.onAuthStateChange((event, session) => {
     state.partsCount = null;
     state.tab = 'jobs';
     state.query = '';
+    state.draft = null;
     return render();
   }
   if (event === 'SIGNED_IN' || event === 'INITIAL_SESSION') {
     render();
     setTimeout(loadHome, 0);
   }
+});
+
+window.addEventListener('hashchange', () => {
+  syncNow();
+  render();
+  window.scrollTo(0, 0);
+  enterRoute();
+});
+window.addEventListener('online', flushAll);
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'hidden') syncNow();
 });
 
 if ('serviceWorker' in navigator) {

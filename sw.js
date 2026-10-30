@@ -1,9 +1,11 @@
-const CACHE = 'octaops-shell-v3';
+const CACHE = 'octaops-shell-v4';
 const SHELL = [
   './',
   'index.html',
   'css/app.css',
   'js/main.js',
+  'js/db.js',
+  'js/report.js',
   'js/supabase.js',
   'js/config.js',
   'manifest.webmanifest',

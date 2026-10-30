@@ -133,6 +133,41 @@ button { cursor: pointer; }
 .fuse-label { font-size: 12px; font-weight: 600; color: var(--text2); min-width: 64px; text-align: right; font-variant-numeric: tabular-nums; }
 .fuse.risk .fuse-label { color: var(--danger); }
 
+/* Job detail */
+.card-link { display: block; color: inherit; text-decoration: none; }
+a.btn { display: flex; align-items: center; justify-content: center; text-decoration: none; }
+.back { display: inline-flex; align-items: center; height: 44px; color: var(--primary); font-weight: 600; text-decoration: none; }
+.detail-head { padding: 4px 0 16px; }
+.detail-title { font-size: 28px; font-weight: 700; letter-spacing: -0.03em; margin: 0; line-height: 1.15; }
+.section h3 { font-size: 13px; font-weight: 600; color: var(--text2); margin: 0 0 4px; }
+.kv { display: flex; justify-content: space-between; gap: 16px; padding: 10px 0; border-top: 1px solid var(--line); font-size: 15px; }
+.section h3 + .kv { border-top: 0; }
+.kv .k { color: var(--text2); flex: none; }
+.kv .v { text-align: right; font-weight: 500; min-width: 0; overflow-wrap: anywhere; }
+.kv a { color: var(--primary); text-decoration: none; }
+
+/* Report form */
+.rep-top { display: flex; justify-content: space-between; align-items: center; }
+.save { font-size: 13px; font-weight: 600; color: var(--text2); }
+.ref { margin-bottom: 16px; padding: 6px 16px; }
+.ref .kv { padding: 7px 0; font-size: 14px; }
+.ref .kv:first-child { border-top: 0; }
+.steps { display: flex; gap: 6px; margin: 4px 0 8px; }
+.step-bar { flex: 1; height: 4px; border-radius: 2px; background: var(--fill); }
+.step-bar.on { background: var(--primary); }
+.step-label { margin: 0 0 6px; color: var(--text2); font-size: 13px; font-weight: 500; }
+.step-title { font-size: 28px; font-weight: 700; letter-spacing: -0.03em; margin: 0 0 16px; }
+.step-body { padding-bottom: 24px; }
+.two { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; }
+.input { min-width: 0; }
+.input:disabled { opacity: 0.7; }
+.area { height: auto; padding: 12px 16px; resize: vertical; line-height: 1.5; min-height: 120px; }
+.hint { display: block; margin-top: 6px; color: var(--text2); font-size: 13px; }
+.seg { display: grid; grid-template-columns: 1fr 1fr; background: var(--fill); border-radius: 9999px; padding: 4px; gap: 4px; }
+.seg-btn { height: 44px; border: 0; border-radius: 9999px; background: transparent; font-weight: 600; color: var(--text2); }
+.seg-btn.on { background: var(--card); color: var(--text); box-shadow: var(--shadow); }
+.actions { display: grid; grid-template-columns: 1fr 2fr; gap: 10px; }
+
 /* Empty / status */
 .empty { text-align: center; padding: 48px 12px; }
 .empty h2 { font-size: 20px; margin: 0 0 6px; font-weight: 700; letter-spacing: -0.02em; }
