@@ -14,7 +14,12 @@ const state = {
   query: '',
   jobsError: '',
   busy: false,
+  pwError: '',
+  pwBusy: false,
+  pwDone: false,
 };
+
+const MIN_PASSWORD = 10;
 
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
@@ -149,12 +154,32 @@ function homeView() {
 }
 
 function sheetView() {
+  if (state.sheet === 'password') return passwordSheet();
   const p = state.profile;
   return `<div class="scrim" data-action="close-sheet"><div class="sheet" role="dialog" aria-label="Account" data-stop>
     <h2>${esc(p?.full_name || 'Account')}</h2>
     <p class="role">${esc(p?.role || 'No role')} · ${esc(state.session?.user?.email || '')}</p>
+    <button class="btn btn-quiet" data-action="change-password">Change password</button>
     <button class="btn btn-danger" data-action="sign-out">Sign out</button>
     <button class="btn btn-quiet" data-action="close-sheet">Close</button>
+  </div></div>`;
+}
+
+function passwordSheet() {
+  const form = state.pwDone ? '' : `<form id="pw" novalidate>
+      <label class="field"><span>New password</span>
+        <input class="input" name="password" type="password" autocomplete="new-password" required></label>
+      <label class="field"><span>Repeat new password</span>
+        <input class="input" name="confirm" type="password" autocomplete="new-password" required></label>
+      <button class="btn" type="submit" ${state.pwBusy ? 'disabled' : ''}>${state.pwBusy ? 'Saving…' : 'Save password'}</button>
+    </form>`;
+  return `<div class="scrim" data-action="close-sheet"><div class="sheet" role="dialog" aria-label="Change password" data-stop>
+    <h2>Change password</h2>
+    <p class="role">Use at least ${MIN_PASSWORD} characters.</p>
+    ${state.pwError ? `<p class="error" role="alert">${esc(state.pwError)}</p>` : ''}
+    ${state.pwDone ? '<p class="success" role="status">Password updated. Use it the next time you sign in.</p>' : ''}
+    ${form}
+    <button class="btn btn-quiet" data-action="close-sheet">${state.pwDone ? 'Done' : 'Cancel'}</button>
   </div></div>`;
 }
 
@@ -196,10 +221,41 @@ async function signIn(form) {
   }
 }
 
+async function changePassword(form) {
+  const password = form.password.value;
+  const confirm = form.confirm.value;
+  if (password.length < MIN_PASSWORD) {
+    state.pwError = `Use at least ${MIN_PASSWORD} characters.`;
+    return render();
+  }
+  if (password !== confirm) {
+    state.pwError = "The two passwords don't match.";
+    return render();
+  }
+  state.pwBusy = true;
+  state.pwError = '';
+  render();
+  const { error } = await sb.auth.updateUser({ password });
+  state.pwBusy = false;
+  if (!error) {
+    state.pwDone = true;
+  } else if (/same/i.test(error.message)) {
+    state.pwError = "Choose a password you haven't used before.";
+  } else if (/reauth|recent|weak|short|least/i.test(error.message)) {
+    state.pwError = 'That password was not accepted. Try a longer one, or sign out and sign in again first.';
+  } else {
+    state.pwError = "Couldn't update your password. Try again.";
+  }
+  render();
+}
+
 app.addEventListener('submit', (e) => {
   if (e.target.id === 'login') {
     e.preventDefault();
     signIn(e.target);
+  } else if (e.target.id === 'pw') {
+    e.preventDefault();
+    changePassword(e.target);
   }
 });
 
@@ -227,7 +283,13 @@ app.addEventListener('click', async (e) => {
       el.setAttribute('aria-label', show ? 'Hide password' : 'Show password');
       break;
     }
-    case 'open-sheet': state.sheet = true; render(); break;
+    case 'open-sheet': state.sheet = 'account'; render(); break;
+    case 'change-password':
+      state.sheet = 'password';
+      state.pwError = '';
+      state.pwDone = false;
+      render();
+      break;
     case 'close-sheet': state.sheet = false; render(); break;
     case 'sign-out':
       state.sheet = false;
