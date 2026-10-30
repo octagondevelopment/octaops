@@ -9,6 +9,7 @@ contexto.txt
 *.pdf
 octaops-dev-brief.md.html
 Formulario*.txt
+samples/
 
 # Dependencies and build output
 node_modules/

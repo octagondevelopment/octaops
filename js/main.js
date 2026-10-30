@@ -1,6 +1,7 @@
 import { sb } from './supabase.js';
 import { getDraft, putDraft, dirtyDrafts, allDrafts } from './db.js';
 import { STEPS, REPORT_COLUMNS, SAVE_TEXT, emptyDraft, rowToDraft, draftToRow, progressHtml, stepHtml } from './report.js';
+import { parseReport, checkJob, matchedRows } from './paste.js';
 
 const app = document.getElementById('app');
 const state = {
@@ -9,6 +10,12 @@ const state = {
   saveStatus: 'local',
   hasDraft: {},
   reportStatus: {},
+  paste: { open: false, text: '', result: null, error: '' },
+  pasteNote: '',
+  parts: null,
+  partsError: '',
+  partQuery: '',
+  openPart: null,
   session: null,
   profile: null,
   profileMissing: false,
@@ -135,11 +142,13 @@ function reportView(job) {
     ${kv('WT', job.work_task_number)}${kv('Store #', job.store_number)}${kv('Address', job.address)}${kv('Issue', job.issue || job.request_class)}${kv('Dispatched', fmtDate(job.dispatched_at))}
   </div>`;
   const banner = locked ? '<p class="success" role="status">This report was already sent, so it can only be read.</p>' : '';
+  const note = state.pasteNote ? `<p class="success" role="status">${esc(state.pasteNote)}</p>` : '';
   return `<main class="screen">
     <div class="screen-body">
       <header class="rep-top">${back}<span class="save" id="save-status" role="status">${esc(SAVE_TEXT[state.saveStatus])}</span></header>
       ${ref}
       ${banner}
+      ${note}
       ${progressHtml(state.step)}
       <div class="step-body">${stepHtml(STEPS[state.step].id, d, locked)}</div>
     </div>
@@ -147,7 +156,70 @@ function reportView(job) {
       <button class="btn btn-quiet" data-action="step-back">${state.step === 0 ? 'Close' : 'Back'}</button>
       <button class="btn" data-action="${last ? 'finish' : 'step-next'}">${last ? 'Save and close' : 'Next'}</button>
     </div>
+    ${state.paste.open ? pasteSheet(job) : ''}
   </main>`;
+}
+
+// A field counts as filled only if the technician changed it: values the app
+// prefills (today's date, machine and install date from the job) do not.
+const hasValue = (d, k, base) => (k === 'overtime' ? d[k] === true : d[k] !== '' && d[k] != null && d[k] !== base?.[k]);
+
+function pasteSheet(job) {
+  const p = state.paste;
+  const wrap = (inner) => `<div class="scrim" data-action="close-paste"><div class="sheet tall" role="dialog" aria-label="Paste from WhatsApp" data-stop>${inner}</div></div>`;
+  if (!p.result) {
+    return wrap(`<h2>Paste from WhatsApp</h2>
+      <p class="role">Paste the report exactly as you send it to the group.</p>
+      ${p.error ? `<p class="error" role="alert">${esc(p.error)}</p>` : ''}
+      <textarea class="input area tall-area" id="paste-text" rows="10" placeholder="WT:&#10;Store #&#10;Time In :&#10;…" autocomplete="off">${esc(p.text)}</textarea>
+      <button class="btn" data-action="detect-paste">Detect fields</button>
+      <button class="btn btn-quiet" data-action="close-paste">Cancel</button>`);
+  }
+  const r = p.result;
+  const rows = matchedRows(r.fields);
+  const mismatch = checkJob(r.info, job);
+  const warns = [...mismatch, ...r.warnings].map((w) => `<p class="warn" role="alert">${esc(w)}</p>`).join('');
+  const found = rows.length
+    ? `<div class="card section"><h3>We found ${rows.length} ${rows.length === 1 ? 'field' : 'fields'}</h3>${rows.map((x) => kv(x.label, x.value)).join('')}</div>`
+    : '<p class="error" role="alert">We could not find any report fields in that text.</p>';
+  const problems = r.problems.length
+    ? `<div class="card section"><h3>Could not read</h3>${r.problems.map((x) => kv(x.label, x.raw)).join('')}</div>` : '';
+  const extra = r.unmatched.length
+    ? `<div class="card section"><h3>Lines we did not use</h3>${r.unmatched.slice(0, 8).map((l) => `<p class="plain">${esc(l)}</p>`).join('')}</div>` : '';
+  const d = state.draft;
+  const base = emptyDraft(job);
+  const clash = Object.keys(r.fields).some((k) => hasValue(d, k, base));
+  const go = mismatch.length ? 'Apply anyway' : 'Apply to report';
+  const buttons = !rows.length ? ''
+    : clash
+      ? `<button class="btn" data-action="apply-paste" data-mode="empty">${mismatch.length ? 'Fill empty fields anyway' : 'Fill empty fields only'}</button>
+         <button class="btn btn-quiet" data-action="apply-paste" data-mode="all">Replace with pasted text</button>`
+      : `<button class="btn" data-action="apply-paste" data-mode="all">${go}</button>`;
+  return wrap(`<h2>Check what we found</h2>
+    <p class="role">Nothing is saved until you apply it. You can edit every field afterwards.</p>
+    ${warns}${found}${problems}${extra}
+    ${buttons}
+    <button class="btn btn-quiet" data-action="edit-paste">Edit the text</button>`);
+}
+
+function applyPaste(mode) {
+  const d = state.draft;
+  const r = state.paste.result;
+  if (!d || !r) return;
+  const job = state.jobs?.find((j) => j.id === d.job_id);
+  const base = job ? emptyDraft(job) : null;
+  let n = 0;
+  for (const [k, v] of Object.entries(r.fields)) {
+    if (mode === 'empty' && hasValue(d, k, base)) continue;
+    d[k] = v;
+    n += 1;
+  }
+  state.paste = { open: false, text: '', result: null, error: '' };
+  state.pasteNote = n ? `Filled ${n} ${n === 1 ? 'field' : 'fields'} from your text. Check each step before you finish.` : '';
+  state.step = 0;
+  if (n) markDirty();
+  render();
+  window.scrollTo(0, 0);
 }
 
 function route() {
@@ -206,6 +278,8 @@ async function openReport(id) {
   if (!job) return;
   state.step = 0;
   state.draft = null;
+  state.pasteNote = '';
+  state.paste = { open: false, text: '', result: null, error: '' };
   render();
   let draft = await getDraft(id);
   let row = null;
@@ -286,12 +360,45 @@ function tabBody() {
       <label class="search">${SEARCH_ICON}<input id="q" type="search" placeholder="Search tickets, stores, issues" value="${esc(state.query)}" autocomplete="off" enterkeyhint="search"></label>
       <div class="stack" id="job-list">${jobList()}</div>`;
   }
-  if (state.tab === 'parts') {
-    const n = state.partsCount;
-    return `<div class="stack"><div class="card stat"><div><div class="num">${n === null ? '…' : esc(n)}</div><div class="lbl">parts in the catalog</div></div></div>
-      <div class="empty"><h2>Parts lookup is next</h2><p>Search and mark parts as used from inside a job.</p></div></div>`;
-  }
+  if (state.tab === 'parts') return partsTab();
   return reportsTab();
+}
+
+const CATALOG_IMG = 'https://octagondevelopment.github.io/octagon-catalogo/img/';
+
+function matchesPart(p) {
+  const q = state.partQuery.trim().toLowerCase();
+  if (!q) return true;
+  return [p.sku, p.sku_8digit, p.name_en, p.name_es, p.module, p.subassembly].some((v) => String(v ?? '').toLowerCase().includes(q));
+}
+
+function partRow(p) {
+  const open = state.openPart === p.sku;
+  const copy = (value) => `<button type="button" class="chip-btn" data-action="copy" data-copy="${esc(value)}">Copy ${esc(value)}</button>`;
+  const details = open
+    ? `<div class="part-detail">${kv('Module', p.module)}${kv('Subassembly', p.subassembly)}${kv('8-digit SKU', p.sku_8digit)}
+        <div class="copy-row">${copy(p.sku)}${p.sku_8digit ? copy(p.sku_8digit) : ''}</div></div>` : '';
+  return `<article class="card part${open ? ' open' : ''}">
+    <button type="button" class="part-head" data-action="toggle-part" data-sku="${esc(p.sku)}" aria-expanded="${open}">
+      <span class="part-pic"><img class="part-img" src="${CATALOG_IMG}${encodeURIComponent(p.sku)}.jpg" alt="" loading="lazy"></span>
+      <span class="part-main"><b>${esc(p.name_en)}</b>${p.name_es ? `<span class="es">${esc(p.name_es)}</span>` : ''}<span class="part-meta"><span class="sku">${esc(p.sku)}</span>${p.page ? ` · Manual p. ${esc(p.page)}` : ''}</span></span>
+    </button>${details}</article>`;
+}
+
+function partList() {
+  const shown = state.parts.filter(matchesPart);
+  if (!shown.length) return '<div class="empty"><h2>No matches</h2><p>Try a part number, or a name in English or Spanish.</p></div>';
+  return shown.map(partRow).join('');
+}
+
+function partsTab() {
+  if (state.parts === null) return '<div class="empty"><p>Loading parts…</p></div>';
+  if (state.partsError) return `<p class="error" role="alert">${esc(state.partsError)}</p>`;
+  if (!state.parts.length) return '<div class="empty"><h2>No hand-checked parts yet</h2><p>Parts appear here once someone checks them against the paper manual.</p></div>';
+  return `<div class="card stat mb"><div><div class="num">${state.parts.length}</div><div class="lbl">parts checked by hand against the manual</div></div></div>
+    <label class="search">${SEARCH_ICON}<input id="pq" type="search" placeholder="Search part number or name" value="${esc(state.partQuery)}" autocomplete="off" enterkeyhint="search"></label>
+    <p class="fine">Pictures come from the catalog and are illustrations. Compare the part with the manual before you order.</p>
+    <div class="stack" id="part-list">${partList()}</div>`;
 }
 
 function reportState(job) {
@@ -391,7 +498,7 @@ async function loadHome() {
   const [profile, jobs, parts, reports, drafts] = await Promise.all([
     sb.from('profiles').select('full_name, role').eq('id', uid).maybeSingle(),
     sb.from('jobs').select('*').order('expires_at', { ascending: true }),
-    sb.from('parts').select('sku', { count: 'exact', head: true }),
+    sb.from('parts').select('sku, sku_8digit, name_en, name_es, module, subassembly, page').eq('hand_checked', true).order('sku', { ascending: true }),
     sb.from('reports').select('job_id, status'),
     allDrafts(),
   ]);
@@ -401,7 +508,8 @@ async function loadHome() {
   state.profileMissing = !profile.data;
   state.jobsError = jobs.error ? "Couldn't load your jobs. Check your connection and reopen the app." : '';
   state.jobs = jobs.data || [];
-  state.partsCount = parts.count;
+  state.partsError = parts.error ? "Couldn't load the parts catalog. Check your connection and reopen the app." : '';
+  state.parts = parts.data || [];
   render();
   enterRoute();
 }
@@ -469,6 +577,15 @@ app.addEventListener('input', (e) => {
     document.getElementById('job-list').innerHTML = jobList();
     return;
   }
+  if (e.target.id === 'pq') {
+    state.partQuery = e.target.value;
+    document.getElementById('part-list').innerHTML = partList();
+    return;
+  }
+  if (e.target.id === 'paste-text') {
+    state.paste.text = e.target.value;
+    return;
+  }
   const field = e.target.dataset?.field;
   if (field && state.draft && !LOCKED.includes(state.draft.status)) {
     state.draft[field] = e.target.value;
@@ -488,6 +605,7 @@ function markDirty() {
 }
 
 function goStep(delta) {
+  state.pasteNote = '';
   state.step = Math.min(STEPS.length - 1, Math.max(0, state.step + delta));
   render();
   window.scrollTo(0, 0);
@@ -501,8 +619,32 @@ app.addEventListener('click', async (e) => {
   }
   const el = e.target.closest('[data-action]');
   if (!el) return;
-  if (el.dataset.action === 'close-sheet' && e.target.closest('[data-stop]') && el.classList.contains('scrim')) return;
+  if (el.classList.contains('scrim') && e.target.closest('[data-stop]')) return;
   switch (el.dataset.action) {
+    case 'toggle-part':
+      state.openPart = state.openPart === el.dataset.sku ? null : el.dataset.sku;
+      document.getElementById('part-list').innerHTML = partList();
+      break;
+    case 'copy':
+      navigator.clipboard?.writeText(el.dataset.copy).then(() => {
+        const label = el.textContent;
+        el.textContent = 'Copied';
+        setTimeout(() => { el.textContent = label; }, 1200);
+      }).catch(() => {});
+      break;
+    case 'open-paste': state.paste = { open: true, text: '', result: null, error: '' }; render(); break;
+    case 'close-paste': state.paste = { open: false, text: '', result: null, error: '' }; render(); break;
+    case 'edit-paste': state.paste.result = null; render(); break;
+    case 'detect-paste':
+      if (!state.paste.text.trim()) {
+        state.paste.error = 'Paste the report text first.';
+      } else {
+        state.paste.error = '';
+        state.paste.result = parseReport(state.paste.text, { today: new Date(), order: 'mdy' });
+      }
+      render();
+      break;
+    case 'apply-paste': applyPaste(el.dataset.mode); break;
     case 'toggle-pass': {
       const input = app.querySelector('input[name="password"]');
       const show = input.type === 'password';
@@ -558,6 +700,10 @@ sb.auth.onAuthStateChange((event, session) => {
     setTimeout(loadHome, 0);
   }
 });
+
+app.addEventListener('error', (e) => {
+  if (e.target.classList?.contains('part-img')) e.target.closest('.part-pic')?.classList.add('no-pic');
+}, true);
 
 window.addEventListener('hashchange', () => {
   syncNow();

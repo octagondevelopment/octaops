@@ -146,6 +146,31 @@ a.btn { display: flex; align-items: center; justify-content: center; text-decora
 .kv .v { text-align: right; font-weight: 500; min-width: 0; overflow-wrap: anywhere; }
 .kv a { color: var(--primary); text-decoration: none; }
 
+.paste-card { display: flex; align-items: center; justify-content: space-between; gap: 12px; background: var(--primary-soft); border-radius: 16px; padding: 12px 14px; margin-bottom: 18px; }
+.paste-card b { display: block; font-size: 14px; }
+.paste-card span { font-size: 13px; color: var(--text2); }
+.btn-pill { height: 44px; padding: 0 16px; border: 0; border-radius: 9999px; background: var(--primary); color: var(--on-primary); font-weight: 600; white-space: nowrap; }
+.sheet.tall { max-height: 92dvh; overflow-y: auto; }
+.tall-area { min-height: 200px; margin-bottom: 14px; }
+.warn { background: var(--amber-soft); color: var(--amber); border-radius: 14px; padding: 12px 14px; font-size: 14px; font-weight: 500; margin: 0 0 12px; }
+.plain { margin: 4px 0; color: var(--text2); font-size: 14px; overflow-wrap: anywhere; }
+.sheet .card.section { margin-bottom: 12px; box-shadow: none; }
+.mb { margin-bottom: 12px; }
+.fine { margin: -4px 0 14px; color: var(--text2); font-size: 13px; }
+.part { padding: 12px; }
+.part-head { display: flex; align-items: center; gap: 12px; width: 100%; padding: 0; border: 0; background: none; text-align: left; color: inherit; }
+.part-pic { flex: none; width: 64px; height: 64px; border-radius: 14px; background: #fff; border: 1px solid var(--line); display: flex; align-items: center; justify-content: center; overflow: hidden; }
+.part-pic img { width: 100%; height: 100%; object-fit: contain; }
+.part-pic.no-pic img { display: none; }
+.part-pic.no-pic { background: var(--fill); }
+.part-main { display: flex; flex-direction: column; min-width: 0; gap: 2px; }
+.part-main b { font-size: 16px; font-weight: 700; letter-spacing: -0.01em; }
+.part-main .es { font-size: 14px; color: var(--text2); }
+.part-meta { font-size: 13px; color: var(--text2); font-variant-numeric: tabular-nums; }
+.part-meta .sku { color: var(--text); font-weight: 600; }
+.part-detail { margin-top: 10px; padding-top: 4px; border-top: 1px solid var(--line); }
+.copy-row { display: flex; flex-wrap: wrap; gap: 8px; padding-top: 10px; border-top: 1px solid var(--line); }
+.chip-btn { height: 44px; padding: 0 14px; border-radius: 9999px; border: 1px solid var(--line); background: var(--fill); font-weight: 600; font-size: 14px; }
 .lede.tight { margin: 0 0 14px; }
 .report-row .job-meta { margin-bottom: 10px; }
 .row-action { color: var(--primary); font-weight: 600; font-size: 14px; }

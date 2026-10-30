@@ -6,7 +6,7 @@ export const STEPS = [
   { id: 'notes', title: 'Notes' },
 ];
 
-export const REPORT_COLUMNS = 'id, job_id, status, visit_date, time_in, time_out, overtime, issue_found, resolution, machine, installation_date, shot_count, cleaning_count, pressure_bar, last_cleaning_at, cancelled_shots_24h, notes';
+export const REPORT_COLUMNS = 'id, job_id, status, visit_date, time_in, time_out, overtime, issue_found, resolution, parts_text, machine, installation_date, shot_count, cleaning_count, pressure_bar, last_cleaning_at, cancelled_shots_24h, notes';
 
 const pad = (n) => String(n).padStart(2, '0');
 const localDate = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
@@ -24,6 +24,7 @@ export function emptyDraft(job) {
     overtime: false,
     issue_found: '',
     resolution: '',
+    parts_text: '',
     machine: job.asset_name || '',
     installation_date: job.asset_install_date || '',
     shot_count: '',
@@ -52,6 +53,7 @@ export function rowToDraft(row, job) {
     overtime: !!row.overtime,
     issue_found: row.issue_found ?? '',
     resolution: row.resolution ?? '',
+    parts_text: row.parts_text ?? '',
     machine: row.machine ?? base.machine,
     installation_date: row.installation_date ?? base.installation_date,
     shot_count: row.shot_count ?? '',
@@ -93,6 +95,7 @@ export function draftToRow(d, technicianId) {
     overtime: !!d.overtime,
     issue_found: orNull(d.issue_found),
     resolution: orNull(d.resolution),
+    parts_text: orNull(d.parts_text),
     machine: orNull(d.machine),
     installation_date: orNull(d.installation_date),
     shot_count: count(d.shot_count),
@@ -127,7 +130,12 @@ function area(label, name, d, locked, rows = 5, hint = '') {
 
 export function stepHtml(stepId, d, locked) {
   if (stepId === 'visit') {
+    const paste = locked ? '' : `<div class="paste-card">
+        <div><b>Already wrote it in WhatsApp?</b><span>Paste the text and we fill the form for you.</span></div>
+        <button type="button" class="btn-pill" data-action="open-paste">Paste from WhatsApp</button>
+      </div>`;
     return `<h2 class="step-title">Visit</h2>
+      ${paste}
       ${field('Date', 'visit_date', d, locked, 'type="date"')}
       <div class="two">
         ${field('Time in', 'time_in', d, locked, 'type="time"')}
@@ -142,7 +150,8 @@ export function stepHtml(stepId, d, locked) {
   if (stepId === 'work') {
     return `<h2 class="step-title">Work done</h2>
       ${area('Issue found', 'issue_found', d, locked, 4, 'What you found when you arrived.')}
-      ${area('Resolution', 'resolution', d, locked, 7, 'What you did to fix it. No length limit.')}`;
+      ${area('Resolution', 'resolution', d, locked, 7, 'What you did to fix it. No length limit.')}
+      ${area('Parts used', 'parts_text', d, locked, 3, 'Part numbers and quantities, as you write them today.')}`;
   }
   if (stepId === 'machine') {
     return `<h2 class="step-title">Machine</h2>
