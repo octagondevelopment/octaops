@@ -11,6 +11,8 @@ const state = {
   sheet: false,
   loginError: '',
   email: '',
+  query: '',
+  jobsError: '',
   busy: false,
 };
 
@@ -23,7 +25,9 @@ const STATUS_LABEL = {
   invoiced: 'Invoiced',
 };
 
-const LOGO = `<svg viewBox="0 0 512 512" aria-hidden="true"><path d="M184 76h144l108 108v144L328 436H184L76 328V184z" fill="none" stroke="var(--accent)" stroke-width="34" stroke-linejoin="round"/><circle cx="256" cy="256" r="56" fill="var(--accent)"/></svg>`;
+const LOGO = `<svg viewBox="0 0 512 512" aria-hidden="true"><path d="M184 76h144l108 108v144L328 436H184L76 328V184z" fill="none" stroke="var(--primary)" stroke-width="34" stroke-linejoin="round"/><circle cx="256" cy="256" r="56" fill="var(--primary)"/></svg>`;
+
+const SEARCH_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>';
 
 const TAB_ICONS = {
   jobs: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="4" width="14" height="17" rx="3"/><path d="M9 4h6v3H9zM9 12h6M9 16h4"/></svg>',
@@ -48,13 +52,34 @@ function fuseHtml(expiresAt) {
 }
 
 function jobCard(job) {
-  const meta = [job.store_number ? `Store ${esc(job.store_number)}` : '', esc(job.priority || '')].filter(Boolean).join(' · ');
+  const store = job.store_name || (job.store_number ? `Store ${job.store_number}` : 'No store');
+  const asset = [job.serial_number ? `S/N ${job.serial_number}` : '', job.error_code ? `Error ${job.error_code}` : ''].filter(Boolean).join(' · ');
   return `<article class="card">
-    <div class="job-head"><span class="chip chip-${esc(job.status)}">${esc(STATUS_LABEL[job.status] || job.status)}</span><span class="wt">#${esc(job.work_task_number)}</span></div>
-    <h3 class="job-title">${esc(job.issue || 'No issue described')}</h3>
-    <p class="job-meta">${meta}</p>
+    <div class="job-head"><h3 class="job-store">${esc(store)}</h3><span class="chip chip-${esc(job.status)}">${esc(STATUS_LABEL[job.status] || job.status)}</span></div>
+    <p class="job-issue">${esc(job.issue || job.request_class || 'No issue described')}</p>
+    <p class="job-meta"><b>#${esc(job.work_task_number)}</b>${job.priority ? ` · ${esc(job.priority)}` : ''}${asset ? `<br>${esc(asset)}` : ''}</p>
     ${fuseHtml(job.expires_at)}
   </article>`;
+}
+
+function matchesQuery(job) {
+  const q = state.query.trim().toLowerCase();
+  if (!q) return true;
+  return [job.work_task_number, job.request_number, job.store_number, job.store_name, job.issue, job.request_class, job.serial_number, job.priority].some((v) => String(v ?? '').toLowerCase().includes(q));
+}
+
+function jobList() {
+  const shown = state.jobs.filter(matchesQuery);
+  if (!shown.length) return '<div class="empty"><h2>No matches</h2><p>Try a ticket number, store or issue.</p></div>';
+  return shown.map(jobCard).join('');
+}
+
+function metricsHtml() {
+  const open = state.jobs.filter((j) => j.status !== 'invoiced');
+  const risk = open.filter((j) => daysLeft(j.expires_at) <= 15).length;
+  const approval = state.jobs.filter((j) => j.status === 'awaiting_approval').length;
+  const tile = (n, label, cls = '') => `<div class="metric ${cls}"><div class="num">${n}</div><div class="lbl">${label}</div></div>`;
+  return `<div class="metrics">${tile(open.length, 'Open')}${tile(risk, 'At risk', risk ? 'risk' : '')}${tile(approval, 'To approve')}</div>`;
 }
 
 function loginView() {
@@ -81,8 +106,11 @@ function loginView() {
 function tabBody() {
   if (state.tab === 'jobs') {
     if (state.jobs === null) return '<div class="empty"><p>Loading jobs…</p></div>';
+    if (state.jobsError) return `<p class="error" role="alert">${esc(state.jobsError)}</p>`;
     if (!state.jobs.length) return '<div class="empty"><h2>No jobs yet</h2><p>Assigned jobs show up here.</p></div>';
-    return `<div class="stack">${state.jobs.map(jobCard).join('')}</div>`;
+    return `${metricsHtml()}
+      <label class="search">${SEARCH_ICON}<input id="q" type="search" placeholder="Search tickets, stores, issues" value="${esc(state.query)}" autocomplete="off" enterkeyhint="search"></label>
+      <div class="stack" id="job-list">${jobList()}</div>`;
   }
   if (state.tab === 'parts') {
     const n = state.partsCount;
@@ -138,11 +166,12 @@ async function loadHome() {
   const uid = state.session.user.id;
   const [profile, jobs, parts] = await Promise.all([
     sb.from('profiles').select('full_name, role').eq('id', uid).maybeSingle(),
-    sb.from('jobs').select('id, work_task_number, store_number, priority, issue, status, expires_at').order('expires_at', { ascending: true }),
+    sb.from('jobs').select('id, work_task_number, request_number, store_number, store_name, priority, issue, request_class, serial_number, error_code, status, expires_at').order('expires_at', { ascending: true }),
     sb.from('parts').select('sku', { count: 'exact', head: true }),
   ]);
   state.profile = profile.data;
   state.profileMissing = !profile.data;
+  state.jobsError = jobs.error ? "Couldn't load your jobs. Check your connection and reopen the app." : '';
   state.jobs = jobs.data || [];
   state.partsCount = parts.count;
   render();
@@ -172,6 +201,12 @@ app.addEventListener('submit', (e) => {
     e.preventDefault();
     signIn(e.target);
   }
+});
+
+app.addEventListener('input', (e) => {
+  if (e.target.id !== 'q') return;
+  state.query = e.target.value;
+  document.getElementById('job-list').innerHTML = jobList();
 });
 
 app.addEventListener('click', async (e) => {
@@ -208,6 +243,7 @@ sb.auth.onAuthStateChange((event, session) => {
     state.jobs = null;
     state.partsCount = null;
     state.tab = 'jobs';
+    state.query = '';
     return render();
   }
   if (event === 'SIGNED_IN' || event === 'INITIAL_SESSION') {
