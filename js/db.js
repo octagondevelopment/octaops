@@ -47,6 +47,14 @@ export async function putDraft(draft) {
   }
 }
 
+export async function allDrafts() {
+  try {
+    return await tx('readonly', (s) => s.getAll());
+  } catch {
+    return [...memory.values()];
+  }
+}
+
 export async function dirtyDrafts() {
   try {
     const all = await tx('readonly', (s) => s.getAll());

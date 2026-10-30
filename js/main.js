@@ -1,5 +1,5 @@
 import { sb } from './supabase.js';
-import { getDraft, putDraft, dirtyDrafts } from './db.js';
+import { getDraft, putDraft, dirtyDrafts, allDrafts } from './db.js';
 import { STEPS, REPORT_COLUMNS, SAVE_TEXT, emptyDraft, rowToDraft, draftToRow, progressHtml, stepHtml } from './report.js';
 
 const app = document.getElementById('app');
@@ -8,6 +8,7 @@ const state = {
   draft: null,
   saveStatus: 'local',
   hasDraft: {},
+  reportStatus: {},
   session: null,
   profile: null,
   profileMissing: false,
@@ -290,7 +291,29 @@ function tabBody() {
     return `<div class="stack"><div class="card stat"><div><div class="num">${n === null ? '…' : esc(n)}</div><div class="lbl">parts in the catalog</div></div></div>
       <div class="empty"><h2>Parts lookup is next</h2><p>Search and mark parts as used from inside a job.</p></div></div>`;
   }
-  return '<div class="empty"><h2>Reports are next</h2><p>Your drafts and submitted reports will live here.</p></div>';
+  return reportsTab();
+}
+
+function reportState(job) {
+  const s = state.reportStatus[job.id];
+  if (s === 'submitted' || s === 'approved') return { label: 'Sent', chip: 'invoiced', action: 'View report' };
+  if (s || state.hasDraft[job.id]) return { label: 'Draft', chip: 'pending', action: 'Continue report' };
+  return { label: 'Not started', chip: 'pending', action: 'Start report' };
+}
+
+function reportsTab() {
+  if (state.jobs === null) return '<div class="empty"><p>Loading…</p></div>';
+  if (!state.jobs.length) return '<div class="empty"><h2>No jobs yet</h2><p>Reports start from an assigned job.</p></div>';
+  const rows = state.jobs.map((job) => {
+    const st = reportState(job);
+    const store = job.store_name || (job.store_number ? `Store ${job.store_number}` : 'No store');
+    return `<a class="card card-link report-row" href="#/job/${esc(job.id)}/report">
+      <div class="job-head"><h3 class="job-store">${esc(store)}</h3><span class="chip chip-${st.chip}">${st.label}</span></div>
+      <p class="job-meta"><b>#${esc(job.work_task_number)}</b> · ${esc(job.issue || job.request_class || 'No issue described')}</p>
+      <span class="row-action">${st.action} ›</span>
+    </a>`;
+  }).join('');
+  return `<p class="lede tight">Pick a job to write its report.</p><div class="stack">${rows}</div>`;
 }
 
 function initials(name) {
@@ -365,11 +388,15 @@ function render() {
 
 async function loadHome() {
   const uid = state.session.user.id;
-  const [profile, jobs, parts] = await Promise.all([
+  const [profile, jobs, parts, reports, drafts] = await Promise.all([
     sb.from('profiles').select('full_name, role').eq('id', uid).maybeSingle(),
     sb.from('jobs').select('*').order('expires_at', { ascending: true }),
     sb.from('parts').select('sku', { count: 'exact', head: true }),
+    sb.from('reports').select('job_id, status'),
+    allDrafts(),
   ]);
+  state.reportStatus = Object.fromEntries((reports.data || []).map((r) => [r.job_id, r.status]));
+  for (const d of drafts) state.hasDraft[d.job_id] = true;
   state.profile = profile.data;
   state.profileMissing = !profile.data;
   state.jobsError = jobs.error ? "Couldn't load your jobs. Check your connection and reopen the app." : '';

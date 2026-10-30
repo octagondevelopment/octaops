@@ -146,6 +146,10 @@ a.btn { display: flex; align-items: center; justify-content: center; text-decora
 .kv .v { text-align: right; font-weight: 500; min-width: 0; overflow-wrap: anywhere; }
 .kv a { color: var(--primary); text-decoration: none; }
 
+.lede.tight { margin: 0 0 14px; }
+.report-row .job-meta { margin-bottom: 10px; }
+.row-action { color: var(--primary); font-weight: 600; font-size: 14px; }
+
 /* Report form */
 .rep-top { display: flex; justify-content: space-between; align-items: center; }
 .save { font-size: 13px; font-weight: 600; color: var(--text2); }
