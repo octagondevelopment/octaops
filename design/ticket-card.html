@@ -1,0 +1,162 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Ticket card test</title>
+  <style>
+    /* Tokens from design.md, refined: soft card line, 10% status tints, 1.5px icons. */
+    :root {
+      --bg: #f9fafb;
+      --card: #ffffff;
+      --line: #e5e7eb;
+      --card-line: rgba(0, 0, 0, 0.06);
+      --card-line-hover: rgba(0, 0, 0, 0.12);
+      --text: #111827;
+      --text-2: #6b7280;
+      --shadow: 0 4px 14px rgba(0, 0, 0, 0.03);
+      --shadow-hover: 0 8px 22px rgba(0, 0, 0, 0.07);
+      --alpha: 0.1;
+      --gray: #4b5563;  --gray-rgb: 107 114 128;
+      --blue: #1e40af;  --blue-rgb: 59 130 246;
+      --amber: #92400e; --amber-rgb: 245 158 11;
+      --green: #065f46; --green-rgb: 16 185 129;
+      --red: #991b1b;   --red-rgb: 239 68 68;
+      --font: system-ui, Inter, -apple-system, sans-serif;
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      padding: max(16px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) max(16px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--font);
+      line-height: 1.45;
+    }
+    .list { display: flex; flex-direction: column; gap: 12px; max-width: 420px; margin: 0 auto; }
+
+    .ticket {
+      padding: 16px;
+      background: var(--card);
+      border: 1px solid var(--card-line);
+      border-radius: 20px;
+      box-shadow: var(--shadow);
+      transition: all 0.2s ease;
+    }
+    @media (hover: hover) {
+      .ticket:hover { transform: translateY(-1px); box-shadow: var(--shadow-hover); border-color: var(--card-line-hover); }
+    }
+    .ticket:active { transform: scale(0.985); box-shadow: var(--shadow); }
+
+    .ticket__top { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: flex-start; gap: 8px 12px; }
+    .ticket__client { margin: 0; font-size: 14px; font-weight: 700; }
+    .ticket__machine { margin: 2px 0 0; font-size: 20px; font-weight: 700; letter-spacing: -0.02em; line-height: 1.2; }
+    .ticket__pills { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; margin-left: auto; }
+
+    /* Translucent pill: 10% tint of a bright hue, text in the dark hue. */
+    .badge {
+      --fg: var(--gray); --tint: var(--gray-rgb);
+      display: inline-flex; align-items: center; height: 26px; padding: 0 11px;
+      border-radius: 9999px; font-size: 12px; font-weight: 700; white-space: nowrap;
+      background: rgb(var(--tint) / var(--alpha)); color: var(--fg);
+    }
+    .badge--ready   { --fg: var(--green); --tint: var(--green-rgb); }
+    .badge--waiting { --fg: var(--amber); --tint: var(--amber-rgb); }
+    .badge--progress{ --fg: var(--blue);  --tint: var(--blue-rgb); }
+    .badge--urgent  { --fg: var(--red);   --tint: var(--red-rgb); }
+
+    /* Pulse on urgent tickets */
+    .pulse { position: relative; flex: none; width: 7px; height: 7px; margin-right: 6px; border-radius: 50%; background: currentColor; }
+    .pulse::after { content: ''; position: absolute; inset: 0; border-radius: 50%; background: currentColor; opacity: 0; }
+    @media (prefers-reduced-motion: no-preference) {
+      .pulse::after { animation: pulse 1.8s ease-out infinite; }
+      @keyframes pulse { 0% { transform: scale(1); opacity: 0.45; } 100% { transform: scale(3.2); opacity: 0; } }
+    }
+
+    .ticket__issue { margin: 12px 0 14px; font-size: 15px; }
+
+    .ticket__meta {
+      display: grid; grid-template-columns: 1fr 1fr; gap: 12px 16px;
+      margin: 0 0 16px; padding-top: 14px; border-top: 1px solid var(--line);
+    }
+    .ticket__meta dt { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-2); }
+    .ticket__meta dd { margin: 3px 0 0; font-size: 14px; font-weight: 700; font-variant-numeric: tabular-nums; }
+    .ticket__meta .is-wide { grid-column: 1 / -1; }
+
+    .ticket__actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .btn {
+      display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+      min-height: 44px; padding: 0 16px; border: 1px solid transparent; border-radius: 12px;
+      font: inherit; font-size: 15px; font-weight: 700; cursor: pointer; transition: all 0.2s ease;
+    }
+    .btn:active { transform: scale(0.98); }
+    .btn--primary { background: var(--text); color: #fff; }
+    .btn--ghost { background: var(--card); color: var(--text); border-color: var(--line); }
+    @media (hover: hover) {
+      .btn--primary:hover { background: #1f2937; }
+      .btn--ghost:hover { background: var(--bg); }
+    }
+    .btn:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
+    .ico { width: 18px; height: 18px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
+
+    @media (prefers-reduced-motion: reduce) {
+      .ticket, .btn { transition: none; }
+    }
+  </style>
+</head>
+<body>
+  <!-- Test data only. Café names, ticket numbers and parts are made up. -->
+  <div class="list">
+    <article class="ticket" aria-labelledby="t1">
+      <header class="ticket__top">
+        <div>
+          <p class="ticket__client">Café Demo Centro</p>
+          <h3 class="ticket__machine" id="t1">La Marzocco Linea PB</h3>
+        </div>
+        <div class="ticket__pills"><span class="badge badge--waiting">Awaiting part</span></div>
+      </header>
+      <p class="ticket__issue">Water leak at group 2</p>
+      <dl class="ticket__meta">
+        <div><dt>Ticket</dt><dd>#DEMO-0101</dd></div>
+        <div><dt>Dispatched</dt><dd>Nov 12, 2026</dd></div>
+        <div class="is-wide"><dt>Part needed</dt><dd>Group head gasket, ordered</dd></div>
+        <div class="is-wide"><dt>SLA</dt><dd>14 days left</dd></div>
+      </dl>
+      <footer class="ticket__actions">
+        <button class="btn btn--primary" type="button">Open ticket</button>
+        <button class="btn btn--ghost" type="button">
+          <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h4l2 5-2.5 1.5a11 11 0 005 5L15 13l5 2v4a2 2 0 01-2 2A16 16 0 013 6a2 2 0 012-2z"/></svg>
+          Call store
+        </button>
+      </footer>
+    </article>
+
+    <article class="ticket" aria-labelledby="t2">
+      <header class="ticket__top">
+        <div>
+          <p class="ticket__client">Café Demo Norte</p>
+          <h3 class="ticket__machine" id="t2">La Marzocco Linea PB</h3>
+        </div>
+        <div class="ticket__pills">
+          <span class="badge badge--urgent"><span class="pulse" aria-hidden="true"></span>Urgent</span>
+          <span class="badge badge--progress">In progress</span>
+        </div>
+      </header>
+      <p class="ticket__issue">Machine will not heat</p>
+      <dl class="ticket__meta">
+        <div><dt>Ticket</dt><dd>#DEMO-0102</dd></div>
+        <div><dt>Dispatched</dt><dd>Nov 14, 2026</dd></div>
+        <div class="is-wide"><dt>SLA</dt><dd>12 days left</dd></div>
+      </dl>
+      <footer class="ticket__actions">
+        <button class="btn btn--primary" type="button">Open ticket</button>
+        <button class="btn btn--ghost" type="button">
+          <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h4l2 5-2.5 1.5a11 11 0 005 5L15 13l5 2v4a2 2 0 01-2 2A16 16 0 013 6a2 2 0 012-2z"/></svg>
+          Call store
+        </button>
+      </footer>
+    </article>
+  </div>
+</body>
+</html>

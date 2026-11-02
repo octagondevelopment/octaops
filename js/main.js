@@ -46,12 +46,15 @@ const STATUS_LABEL = {
 
 const LOGO = `<svg viewBox="0 0 512 512" aria-hidden="true"><path d="M184 76h144l108 108v144L328 436H184L76 328V184z" fill="none" stroke="var(--primary)" stroke-width="34" stroke-linejoin="round"/><circle cx="256" cy="256" r="56" fill="var(--primary)"/></svg>`;
 
-const SEARCH_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>';
+const ICON_BACK = '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg>';
+const ICON_NEXT = '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>';
+
+const SEARCH_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>';
 
 const TAB_ICONS = {
-  jobs: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="4" width="14" height="17" rx="3"/><path d="M9 4h6v3H9zM9 12h6M9 16h4"/></svg>',
-  parts: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M18.4 5.6l-2.1 2.1M7.7 16.3l-2.1 2.1"/></svg>',
-  reports: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 3h7l5 5v13H7z"/><path d="M14 3v5h5M10 13h6M10 17h4"/></svg>',
+  jobs: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="4" width="14" height="17" rx="3"/><path d="M9 4h6v3H9zM9 12h6M9 16h4"/></svg>',
+  parts: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M18.4 5.6l-2.1 2.1M7.7 16.3l-2.1 2.1"/></svg>',
+  reports: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 3h7l5 5v13H7z"/><path d="M14 3v5h5M10 13h6M10 17h4"/></svg>',
 };
 
 function daysLeft(expiresAt) {
@@ -70,11 +73,19 @@ function fuseHtml(expiresAt) {
   return `<div class="fuse ${level}"><div class="fuse-track"><div class="fuse-fill" style="width:${elapsed.toFixed(0)}%"></div></div><span class="fuse-label">${label}</span></div>`;
 }
 
+// Priority 1 (for example "1 - High") or any text that says urgent or critical.
+function isUrgent(job) {
+  return job.status !== 'invoiced' && /^\s*p?1\b|urgent|critical|emergency/i.test(job.priority || '');
+}
+
+const statusChip = (job) => `<span class="chip chip-${esc(job.status)}">${esc(STATUS_LABEL[job.status] || job.status)}</span>`;
+const chipsHtml = (job) => `<div class="chips">${isUrgent(job) ? '<span class="chip chip-urgent"><span class="pulse" aria-hidden="true"></span>Urgent</span>' : ''}${statusChip(job)}</div>`;
+
 function jobCard(job) {
   const store = job.store_name || (job.store_number ? `Store ${job.store_number}` : 'No store');
   const asset = [job.serial_number ? `S/N ${job.serial_number}` : '', job.error_code ? `Error ${job.error_code}` : ''].filter(Boolean).join(' · ');
   return `<a class="card card-link" href="#/job/${esc(job.id)}">
-    <div class="job-head"><h3 class="job-store">${esc(store)}</h3><span class="chip chip-${esc(job.status)}">${esc(STATUS_LABEL[job.status] || job.status)}</span></div>
+    <div class="job-head"><h3 class="job-store">${esc(store)}</h3>${chipsHtml(job)}</div>
     <p class="job-issue">${esc(job.issue || job.request_class || 'No issue described')}</p>
     <p class="job-meta"><b>#${esc(job.work_task_number)}</b>${job.priority ? ` · ${esc(job.priority)}` : ''}${asset ? `<br>${esc(asset)}` : ''}</p>
     ${fuseHtml(job.expires_at)}
@@ -87,11 +98,11 @@ const fmtDate = (iso) => {
   return new Date(y, m - 1, d).toLocaleDateString('en-CA', { year: 'numeric', month: 'short', day: 'numeric' });
 };
 
-function kv(label, value, href) {
+function kv(label, value, href, key) {
   if (value === null || value === undefined || value === '') return '';
   const text = esc(value);
   const body = href ? `<a href="${esc(href)}" ${href.startsWith('http') ? 'target="_blank" rel="noopener noreferrer"' : ''}>${text}</a>` : text;
-  return `<div class="kv"><span class="k">${esc(label)}</span><span class="v">${body}</span></div>`;
+  return `<div class="kv${key ? ' key' : ''}"><span class="k">${esc(label)}</span><span class="v">${body}</span></div>`;
 }
 
 const tel = (n) => (n ? `tel:${String(n).replace(/[^\d+]/g, '')}` : '');
@@ -103,25 +114,25 @@ function section(title, rows) {
 }
 
 function jobDetailView(job) {
-  if (state.jobs === null) return `<main class="screen"><div class="screen-body"><a class="back" href="#/">‹ Jobs</a><div class="empty"><p>Loading job…</p></div></div></main>`;
-  if (!job) return `<main class="screen"><div class="screen-body"><a class="back" href="#/">‹ Jobs</a><div class="empty"><h2>Job not found</h2><p>It may have been reassigned.</p></div></div></main>`;
+  if (state.jobs === null) return `<main class="screen"><div class="screen-body"><a class="back" href="#/">${ICON_BACK}<span>Jobs</span></a><div class="empty"><p>Loading job…</p></div></div></main>`;
+  if (!job) return `<main class="screen"><div class="screen-body"><a class="back" href="#/">${ICON_BACK}<span>Jobs</span></a><div class="empty"><h2>Job not found</h2><p>It may have been reassigned.</p></div></div></main>`;
   const store = job.store_name || (job.store_number ? `Store ${job.store_number}` : 'No store');
   const closed = job.status === 'awaiting_approval' || job.status === 'invoiced';
   const label = closed ? 'View report' : state.hasDraft[job.id] ? 'Continue report' : 'Start report';
   const photos = (job.photo_urls || []).map((u, i) => kv(`Photo ${i + 1}`, 'Open photo', u)).join('');
   return `<main class="screen">
     <div class="screen-body">
-      <a class="back" href="#/">‹ Jobs</a>
+      <a class="back" href="#/">${ICON_BACK}<span>Jobs</span></a>
       <header class="detail-head">
-        <div class="job-head"><h1 class="detail-title">${esc(store)}</h1><span class="chip chip-${esc(job.status)}">${esc(STATUS_LABEL[job.status] || job.status)}</span></div>
+        <div class="job-head"><h1 class="detail-title">${esc(store)}</h1>${chipsHtml(job)}</div>
         <p class="job-meta"><b>#${esc(job.work_task_number)}</b>${job.priority ? ` · ${esc(job.priority)}` : ''}</p>
         ${fuseHtml(job.expires_at)}
       </header>
       <div class="stack">
-        ${section('Request', [kv('Category', job.request_class), kv('Summary', job.request_summary), kv('Request number', job.request_number), kv('Dispatched', fmtDate(job.dispatched_at)), kv('Requested', job.request_at ? new Date(job.request_at).toLocaleString('en-CA', { dateStyle: 'medium', timeStyle: 'short' }) : ''), kv('Expected arrival', job.expected_arrival), kv('Expected completion', job.expected_completion), photos])}
+        ${section('Request', [kv('Category', job.request_class), kv('Summary', job.request_summary), kv('Request number', job.request_number, '', true), kv('Dispatched', fmtDate(job.dispatched_at)), kv('Requested', job.request_at ? new Date(job.request_at).toLocaleString('en-CA', { dateStyle: 'medium', timeStyle: 'short' }) : ''), kv('Expected arrival', job.expected_arrival), kv('Expected completion', job.expected_completion), photos])}
         ${section('Where', [kv('Address', job.address, maps(job.address)), kv('Store phone', job.store_phone, tel(job.store_phone)), kv('Store notes', job.dispatch_notes)])}
         ${section('Contacts', [kv('Requested by', job.requester_name), kv('Phone', job.requester_phone, tel(job.requester_phone)), kv('Title', job.requester_title), kv('Facilities', job.facilities_contact_name), kv('Facilities phone', job.facilities_contact_phone, tel(job.facilities_contact_phone)), kv('Facilities email', job.facilities_contact_email, job.facilities_contact_email ? `mailto:${job.facilities_contact_email}` : '')])}
-        ${section('Equipment', [kv('Asset', job.asset_name), kv('Tag', job.asset_tag), kv('Serial number', job.serial_number), kv('Error code', job.error_code), kv('Installed', fmtDate(job.asset_install_date)), kv('Partner serial', job.partner_serial)])}
+        ${section('Equipment', [kv('Asset', job.asset_name), kv('Tag', job.asset_tag, '', true), kv('Serial number', job.serial_number, '', true), kv('Error code', job.error_code, '', true), kv('Installed', fmtDate(job.asset_install_date)), kv('Partner serial', job.partner_serial)])}
       </div>
     </div>
     <div class="sticky-bar"><a class="btn" href="#/job/${esc(job.id)}/report">${label}</a></div>
@@ -132,14 +143,14 @@ const LOCKED = ['submitted', 'approved'];
 
 function reportView(job) {
   if (state.jobs === null) return `<main class="screen"><div class="screen-body"><div class="empty"><p>Loading…</p></div></div></main>`;
-  if (!job) return `<main class="screen"><div class="screen-body"><a class="back" href="#/">‹ Jobs</a><div class="empty"><h2>Job not found</h2></div></div></main>`;
+  if (!job) return `<main class="screen"><div class="screen-body"><a class="back" href="#/">${ICON_BACK}<span>Jobs</span></a><div class="empty"><h2>Job not found</h2></div></div></main>`;
   const d = state.draft;
-  const back = `<a class="back" href="#/job/${esc(job.id)}">‹ Job</a>`;
+  const back = `<a class="back" href="#/job/${esc(job.id)}">${ICON_BACK}<span>Job</span></a>`;
   if (!d || d.job_id !== job.id) return `<main class="screen"><div class="screen-body">${back}<div class="empty"><p>Opening report…</p></div></div></main>`;
   const locked = LOCKED.includes(d.status);
   const last = state.step === STEPS.length - 1;
   const ref = `<div class="card ref">
-    ${kv('WT', job.work_task_number)}${kv('Store #', job.store_number)}${kv('Address', job.address)}${kv('Issue', job.issue || job.request_class)}${kv('Dispatched', fmtDate(job.dispatched_at))}
+    ${kv('WT', job.work_task_number, '', true)}${kv('Store #', job.store_number, '', true)}${kv('Address', job.address)}${kv('Issue', job.issue || job.request_class)}${kv('Dispatched', fmtDate(job.dispatched_at))}
   </div>`;
   const banner = locked ? '<p class="success" role="status">This report was already sent, so it can only be read.</p>' : '';
   const note = state.pasteNote ? `<p class="success" role="status">${esc(state.pasteNote)}</p>` : '';
@@ -417,7 +428,7 @@ function reportsTab() {
     return `<a class="card card-link report-row" href="#/job/${esc(job.id)}/report">
       <div class="job-head"><h3 class="job-store">${esc(store)}</h3><span class="chip chip-${st.chip}">${st.label}</span></div>
       <p class="job-meta"><b>#${esc(job.work_task_number)}</b> · ${esc(job.issue || job.request_class || 'No issue described')}</p>
-      <span class="row-action">${st.action} ›</span>
+      <span class="row-action">${st.action}${ICON_NEXT}</span>
     </a>`;
   }).join('');
   return `<p class="lede tight">Pick a job to write its report.</p><div class="stack">${rows}</div>`;
