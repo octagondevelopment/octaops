@@ -1,0 +1,1 @@
+\## Sistema de Diseño y UI - Antes de crear o editar cualquier componente visual en HTML, CSS o JavaScript, lee y aplica estrictamente las pautas de \`design.md\`. - Mantén siempre el stack tecnológico aprobado para OctaOps: PWA en JavaScript plano + Supabase (sin React Native ni Expo).
