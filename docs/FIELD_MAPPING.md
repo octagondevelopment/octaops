@@ -47,6 +47,18 @@ Where each field the team already uses lives in OctaOps. No real data here, only
 
 The approval email to accounting should render the report in this same order.
 
+## Timesheet
+
+Internal Octagon hours, separate from any client system. Table `timesheets`: `technician_id`, `clock_in`,
+`clock_out`, `work_date` (the clock-in day in Vancouver time; a shift past midnight counts on its start day),
+`note`, `edited_by`, `edited_at`.
+
+- Technicians clock in and out with the functions `clock_in_now()` and `clock_out_now()`. The server sets the time,
+  so a phone cannot change it. They read only their own rows and cannot write directly.
+- Admins read everyone and add or correct entries (a forgotten clock-out is fixed this way).
+- One open entry per person at a time; several entries per day are allowed.
+- Weeks run Monday to Sunday.
+
 ## Parts catalog
 
 OctaOps shows only the parts checked by hand against the paper manual. The catalog app keeps that list in

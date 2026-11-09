@@ -2,9 +2,15 @@ import { sb } from './supabase.js';
 import { getDraft, putDraft, dirtyDrafts, allDrafts } from './db.js';
 import { STEPS, REPORT_COLUMNS, SAVE_TEXT, emptyDraft, rowToDraft, draftToRow, progressHtml, stepHtml } from './report.js';
 import { parseReport, checkJob, matchedRows } from './paste.js';
+import { esc } from './util.js';
+import { vancouverDate, weekStart, addDays, entryMs, formatDuration, toLocalInput, fromLocalInput } from './timesheet.js';
+import { newClockState, newTeamState, clockTab, timesheetsTab, clockOutSheet, timeEditSheet } from './time-view.js';
 
 const app = document.getElementById('app');
 const state = {
+  clock: newClockState(),
+  team: newTeamState(),
+  timeEdit: null,
   step: 0,
   draft: null,
   saveStatus: 'local',
@@ -35,7 +41,7 @@ const state = {
 
 const MIN_PASSWORD = 10;
 
-const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const isAdmin = () => state.profile?.role === 'admin';
 
 const STATUS_LABEL = {
   pending: 'Pending',
@@ -52,6 +58,8 @@ const ICON_NEXT = '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="curr
 const SEARCH_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>';
 
 const TAB_ICONS = {
+  clock: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></svg>',
+  timesheets: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="5" width="16" height="15" rx="3"/><path d="M8 3v4M16 3v4M4 10h16M8 14h3M13 14h3"/></svg>',
   jobs: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="4" width="14" height="17" rx="3"/><path d="M9 4h6v3H9zM9 12h6M9 16h4"/></svg>',
   parts: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M18.4 5.6l-2.1 2.1M7.7 16.3l-2.1 2.1"/></svg>',
   reports: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 3h7l5 5v13H7z"/><path d="M14 3v5h5M10 13h6M10 17h4"/></svg>',
@@ -88,7 +96,7 @@ function jobCard(job) {
     <div class="job-head"><h3 class="job-store">${esc(store)}</h3>${chipsHtml(job)}</div>
     <p class="job-issue">${esc(job.issue || job.request_class || 'No issue described')}</p>
     <p class="job-meta"><b>#${esc(job.work_task_number)}</b>${job.priority ? ` · ${esc(job.priority)}` : ''}${asset ? `<br>${esc(asset)}` : ''}</p>
-    ${fuseHtml(job.expires_at)}
+    ${isAdmin() ? fuseHtml(job.expires_at) : ''}
   </a>`;
 }
 
@@ -126,7 +134,7 @@ function jobDetailView(job) {
       <header class="detail-head">
         <div class="job-head"><h1 class="detail-title">${esc(store)}</h1>${chipsHtml(job)}</div>
         <p class="job-meta"><b>#${esc(job.work_task_number)}</b>${job.priority ? ` · ${esc(job.priority)}` : ''}</p>
-        ${fuseHtml(job.expires_at)}
+        ${isAdmin() ? fuseHtml(job.expires_at) : ''}
       </header>
       <div class="stack">
         ${section('Request', [kv('Category', job.request_class), kv('Summary', job.request_summary), kv('Request number', job.request_number, '', true), kv('Dispatched', fmtDate(job.dispatched_at)), kv('Requested', job.request_at ? new Date(job.request_at).toLocaleString('en-CA', { dateStyle: 'medium', timeStyle: 'short' }) : ''), kv('Expected arrival', job.expected_arrival), kv('Expected completion', job.expected_completion), photos])}
@@ -338,6 +346,11 @@ function metricsHtml() {
   const risk = open.filter((j) => daysLeft(j.expires_at) <= 15).length;
   const approval = state.jobs.filter((j) => j.status === 'awaiting_approval').length;
   const tile = (n, label, cls = '') => `<div class="metric ${cls}"><div class="num">${n}</div><div class="lbl">${label}</div></div>`;
+  if (!isAdmin()) {
+    // Technicians see no billing data (expiry, approvals).
+    const urgent = open.filter(isUrgent).length;
+    return `<div class="metrics two">${tile(open.length, 'Open')}${tile(urgent, 'Urgent', urgent ? 'risk' : '')}</div>`;
+  }
   return `<div class="metrics">${tile(open.length, 'Open')}${tile(risk, 'At risk', risk ? 'risk' : '')}${tile(approval, 'To approve')}</div>`;
 }
 
@@ -371,6 +384,8 @@ function tabBody() {
       <label class="search">${SEARCH_ICON}<input id="q" type="search" placeholder="Search tickets, stores, issues" value="${esc(state.query)}" autocomplete="off" enterkeyhint="search"></label>
       <div class="stack" id="job-list">${jobList()}</div>`;
   }
+  if (state.tab === 'clock') return clockTab(state.clock);
+  if (state.tab === 'timesheets') return timesheetsTab(state.team);
   if (state.tab === 'parts') return partsTab();
   return reportsTab();
 }
@@ -442,8 +457,9 @@ function homeView() {
   const p = state.profile;
   const name = p?.full_name || 'there';
   const first = name.split(' ')[0];
-  const tabs = [['jobs', 'Jobs'], ['parts', 'Parts'], ['reports', 'Reports']];
-  const heading = { jobs: 'My jobs', parts: 'Parts', reports: 'Reports' }[state.tab];
+  const tabs = tabsFor();
+  if (!tabs.some(([id]) => id === state.tab)) state.tab = 'jobs';
+  const heading = { jobs: isAdmin() ? 'Jobs' : 'My jobs', clock: 'Time clock', timesheets: 'Timesheets', parts: 'Parts', reports: 'Reports' }[state.tab];
   const profileNote = state.profileMissing
     ? '<p class="error" role="alert">Your account has no profile yet. Ask an admin to set it up.</p>' : '';
   return `<main class="screen">
@@ -455,7 +471,7 @@ function homeView() {
       ${profileNote}
       ${tabBody()}
     </div>
-    <nav class="tabbar" aria-label="Main">
+    <nav class="tabbar" aria-label="Main" style="grid-template-columns:repeat(${tabs.length},1fr)">
       ${tabs.map(([id, label]) => `<button class="tab" data-tab="${id}" ${state.tab === id ? 'aria-current="page"' : ''}>${TAB_ICONS[id]}<span>${label}</span></button>`).join('')}
     </nav>
     ${state.sheet ? sheetView() : ''}
@@ -464,6 +480,8 @@ function homeView() {
 
 function sheetView() {
   if (state.sheet === 'password') return passwordSheet();
+  if (state.sheet === 'clockout') return clockOutSheet(state.clock);
+  if (state.sheet === 'timeedit' && state.timeEdit) return timeEditSheet(state.timeEdit);
   const p = state.profile;
   return `<div class="scrim" data-action="close-sheet"><div class="sheet" role="dialog" aria-label="Account" data-stop>
     <h2>${esc(p?.full_name || 'Account')}</h2>
@@ -544,6 +562,118 @@ async function signIn(form) {
   }
 }
 
+// ---- Time clock and timesheets ------------------------------------------------
+function tabsFor() {
+  const tabs = [['jobs', 'Jobs'], ['clock', 'Clock']];
+  if (isAdmin()) tabs.push(['timesheets', 'Timesheets']);
+  tabs.push(['parts', 'Parts'], ['reports', 'Reports']);
+  return tabs;
+}
+
+async function loadMine() {
+  if (!state.session) return;
+  const c = state.clock;
+  const uid = state.session.user.id;
+  const start = weekStart(vancouverDate());
+  const [week, open] = await Promise.all([
+    sb.from('timesheets').select('*').eq('technician_id', uid).gte('work_date', start).lte('work_date', addDays(start, 6)).order('clock_in', { ascending: true }),
+    sb.from('timesheets').select('*').eq('technician_id', uid).is('clock_out', null).maybeSingle(),
+  ]);
+  if (week.error || open.error) {
+    c.error = "Couldn't load your hours. Check your connection and try again.";
+  } else {
+    c.error = '';
+    c.entries = week.data || [];
+    c.open = open.data || null;
+    c.loaded = true;
+  }
+  if (state.tab === 'clock') render();
+}
+
+async function loadTeam() {
+  if (!state.session || !isAdmin()) return;
+  const t = state.team;
+  t.loaded = false;
+  t.error = '';
+  if (state.tab === 'timesheets') render();
+  const [entries, people] = await Promise.all([
+    sb.from('timesheets').select('*').gte('work_date', t.week).lte('work_date', addDays(t.week, 6)).order('clock_in', { ascending: true }),
+    sb.from('profiles').select('id, full_name, role').order('full_name', { ascending: true }),
+  ]);
+  if (entries.error || people.error) {
+    t.error = "Couldn't load the timesheets. Check your connection and try again.";
+  } else {
+    t.entries = entries.data || [];
+    t.people = people.data || [];
+    t.loaded = true;
+  }
+  if (state.tab === 'timesheets') render();
+}
+
+const clockProblem = (error) => (/Already clocked in/.test(error.message) ? "You're already clocked in."
+  : /Not clocked in/.test(error.message) ? "You're not clocked in."
+  : navigator.onLine ? "Couldn't save that. Try again." : "You're offline. The clock needs a connection so the time is exact.");
+
+async function clockIn() {
+  const c = state.clock;
+  if (c.busy) return;
+  c.busy = true;
+  c.error = '';
+  render();
+  const { error } = await sb.rpc('clock_in_now');
+  c.busy = false;
+  if (error) c.error = clockProblem(error);
+  await loadMine();
+  if (error) render();
+}
+
+async function clockOut() {
+  const c = state.clock;
+  if (c.busy) return;
+  c.busy = true;
+  render();
+  const { error } = await sb.rpc('clock_out_now');
+  c.busy = false;
+  state.sheet = false;
+  c.error = error ? clockProblem(error) : '';
+  await loadMine();
+  if (error) render();
+}
+
+function startEdit(entry, technicianId) {
+  const person = state.team.people.find((p) => p.id === technicianId);
+  state.timeEdit = entry
+    ? { id: entry.id, technician_id: entry.technician_id, name: person?.full_name || 'Entry', clock_in: toLocalInput(entry.clock_in), clock_out: toLocalInput(entry.clock_out), note: entry.note || '', error: '', busy: false }
+    : { id: null, technician_id: technicianId, name: person?.full_name || 'Person', clock_in: `${vancouverDate()}T08:00`, clock_out: '', note: '', error: '', busy: false };
+  state.sheet = 'timeedit';
+  render();
+}
+
+async function saveEntry() {
+  const ed = state.timeEdit;
+  if (!ed || ed.busy) return;
+  const clockInIso = fromLocalInput(ed.clock_in);
+  const clockOutIso = ed.clock_out ? fromLocalInput(ed.clock_out) : null;
+  if (!clockInIso) { ed.error = 'Enter a valid clock-in time.'; return render(); }
+  if (ed.clock_out && !clockOutIso) { ed.error = 'Enter a valid clock-out time.'; return render(); }
+  if (clockOutIso && new Date(clockOutIso) <= new Date(clockInIso)) { ed.error = 'Clock out must be after clock in.'; return render(); }
+  ed.busy = true;
+  ed.error = '';
+  render();
+  const row = { clock_in: clockInIso, clock_out: clockOutIso, note: ed.note.trim() || null, edited_by: state.session.user.id, edited_at: new Date().toISOString() };
+  const { error } = ed.id
+    ? await sb.from('timesheets').update(row).eq('id', ed.id)
+    : await sb.from('timesheets').insert({ ...row, technician_id: ed.technician_id });
+  ed.busy = false;
+  if (error) {
+    ed.error = error.code === '23505' ? 'This person already has an open entry. Close it first.' : "Couldn't save the entry. Try again.";
+    return render();
+  }
+  state.sheet = false;
+  state.timeEdit = null;
+  await loadTeam();
+}
+
 async function changePassword(form) {
   const password = form.password.value;
   const confirm = form.confirm.value;
@@ -588,6 +718,11 @@ app.addEventListener('input', (e) => {
     document.getElementById('job-list').innerHTML = jobList();
     return;
   }
+  const editField = e.target.dataset?.edit;
+  if (editField && state.timeEdit) {
+    state.timeEdit[editField] = e.target.value;
+    return;
+  }
   if (e.target.id === 'pq') {
     state.partQuery = e.target.value;
     document.getElementById('part-list').innerHTML = partList();
@@ -626,7 +761,10 @@ app.addEventListener('click', async (e) => {
   const tab = e.target.closest('[data-tab]');
   if (tab) {
     state.tab = tab.dataset.tab;
-    return render();
+    render();
+    if (state.tab === 'clock') loadMine();
+    if (state.tab === 'timesheets') loadTeam();
+    return;
   }
   const el = e.target.closest('[data-action]');
   if (!el) return;
@@ -680,6 +818,31 @@ app.addEventListener('click', async (e) => {
       await syncNow();
       location.hash = `#/job/${route().id}`;
       break;
+    case 'clock-in': clockIn(); break;
+    case 'ask-clock-out': state.sheet = 'clockout'; render(); break;
+    case 'confirm-clock-out': clockOut(); break;
+    case 'week-prev':
+    case 'week-next':
+      state.team.week = addDays(state.team.week, el.dataset.action === 'week-prev' ? -7 : 7);
+      state.team.expanded = null;
+      loadTeam();
+      break;
+    case 'week-today':
+      state.team.week = weekStart(vancouverDate());
+      state.team.expanded = null;
+      loadTeam();
+      break;
+    case 'toggle-person':
+      state.team.expanded = state.team.expanded === el.dataset.id ? null : el.dataset.id;
+      render();
+      break;
+    case 'edit-entry': {
+      const entry = state.team.entries.find((x) => x.id === el.dataset.id);
+      if (entry) startEdit(entry, entry.technician_id);
+      break;
+    }
+    case 'add-entry': startEdit(null, el.dataset.tech); break;
+    case 'save-entry': saveEntry(); break;
     case 'open-sheet': state.sheet = 'account'; render(); break;
     case 'change-password':
       state.sheet = 'password';
@@ -704,6 +867,10 @@ sb.auth.onAuthStateChange((event, session) => {
     state.tab = 'jobs';
     state.query = '';
     state.draft = null;
+    state.clock = newClockState();
+    state.team = newTeamState();
+    state.timeEdit = null;
+    state.sheet = false;
     return render();
   }
   if (event === 'SIGNED_IN' || event === 'INITIAL_SESSION') {
@@ -723,6 +890,10 @@ window.addEventListener('hashchange', () => {
   enterRoute();
 });
 window.addEventListener('online', flushAll);
+setInterval(() => {
+  const el = document.getElementById('clock-elapsed');
+  if (el && state.clock.open) el.textContent = formatDuration(entryMs(state.clock.open));
+}, 30000);
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'hidden') syncNow();
 });

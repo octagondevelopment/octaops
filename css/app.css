@@ -233,6 +233,40 @@ a.btn { display: flex; align-items: center; justify-content: center; text-decora
 .seg-btn.on { background: var(--card); color: var(--text); box-shadow: var(--shadow); }
 .actions { display: grid; grid-template-columns: 1fr 2fr; gap: 10px; }
 
+/* Time clock and timesheets */
+.eyebrow { font-size: 11px; font-weight: 600; color: var(--text2); margin: 0; }
+.section-title { margin: 22px 0 8px; }
+.metrics.two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.pulse.green { color: var(--st-green); }
+.clock { text-align: center; padding: 22px 16px 16px; margin-bottom: 14px; }
+.clock .eyebrow { display: flex; align-items: center; justify-content: center; }
+.clock-time { margin: 6px 0 2px; font-size: 56px; font-weight: 700; letter-spacing: -0.03em; line-height: 1.05; font-variant-numeric: tabular-nums; }
+.clock.on .clock-time { color: var(--st-green); }
+.clock-sub { margin: 0 0 18px; color: var(--text2); font-size: 14px; }
+.weeknav { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 14px; }
+.weeknav .wk { text-align: center; display: flex; flex-direction: column; align-items: center; }
+.weeknav .wk b { font-size: 17px; font-weight: 700; letter-spacing: -0.01em; }
+.icon-btn { width: 44px; height: 44px; flex: none; border: 1px solid var(--card-line); border-radius: 12px; background: var(--card); color: var(--text); display: flex; align-items: center; justify-content: center; transition: all 0.2s ease; }
+.icon-btn:active { transform: scale(0.96); }
+.icon-spacer { width: 44px; flex: none; }
+.link-btn { min-height: 44px; padding: 0; border: 0; background: none; color: var(--primary); font-weight: 600; font-size: 14px; }
+.person .job-head { align-items: flex-start; }
+.person .job-store { display: flex; align-items: center; }
+.week-total { text-align: right; }
+.week-total b { display: block; font-size: 22px; font-weight: 700; line-height: 1.1; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+.days { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 4px; margin: 12px 0 4px; }
+.day { text-align: center; padding: 7px 0; border-radius: 10px; background: var(--fill); }
+.day .d { display: block; font-size: 11px; font-weight: 600; letter-spacing: 0.05em; color: var(--text2); }
+.day .h { display: block; margin-top: 2px; font-size: 12px; font-weight: 700; color: var(--text2); font-variant-numeric: tabular-nums; }
+.day.has .h { color: var(--text); }
+.day.today { box-shadow: inset 0 0 0 1.5px var(--primary); }
+.entries { margin-top: 4px; border-top: 1px solid var(--line); }
+.entry { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--line); font-size: 14px; }
+.entry .t { color: var(--text2); font-size: 13px; }
+.entry-side { display: flex; align-items: center; gap: 10px; flex: none; }
+.entry-side .v { font-weight: 700; font-variant-numeric: tabular-nums; }
+.chip-btn.add { margin-top: 12px; }
+
 /* Empty / status */
 .empty { text-align: center; padding: 48px 12px; }
 .empty h2 { font-size: 20px; margin: 0 0 6px; font-weight: 700; letter-spacing: -0.02em; }

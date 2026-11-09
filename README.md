@@ -20,6 +20,18 @@ PWA frontend, Supabase (Postgres, Auth, RLS, Edge Functions), Resend for email, 
 
 Copy `.env.example` to `.env` and fill in your own Supabase URL and anon key. Never commit `.env` or any service key.
 
+## Tests
+
+The app has no build step. The tests are dev-only:
+
+```
+npm install
+npm test            # unit tests (paste reader, timesheet helpers)
+npm run test:rls    # applies every migration to a throwaway Postgres and checks who can read and write what
+```
+
+Database changes live in `supabase/migrations`, numbered in the order they must be run in the Supabase SQL Editor.
+
 ## Security
 
 This repository is public. It must never contain service keys, personal data, client names or store addresses. Every Supabase table has Row Level Security enabled.
