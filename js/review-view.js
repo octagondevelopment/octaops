@@ -80,7 +80,7 @@ export function reviewScreen(report, job, person, rv) {
       <div class="stack">
         ${section('Job', kvRow('WT', job?.work_task_number, true) + kvRow('Store #', job?.store_number, true) + kvRow('Address', job?.address) + kvRow('Issue', job?.issue || job?.request_class) + kvRow('Dispatched', dateText(job?.dispatched_at)))}
         ${section('Visit', kvRow('Date', dateText(report.visit_date)) + kvRow('Time in', report.time_in ? formatClock(report.time_in) : '', true) + kvRow('Time out', report.time_out ? formatClock(report.time_out) : '', true) + kvRow('On site', hoursOnSite(report), true) + kvRow('Overtime', report.overtime ? 'Yes' : 'No'))}
-        ${section('Work done', block('Issue found', report.issue_found) + block('Resolution', report.resolution) + block('Parts', report.parts_text))}
+        ${section('Work done', block('Issue found', report.issue_found) + block('Resolution Summary', report.resolution) + block('Recommendations', report.recommendations) + block('Parts', report.parts_text))}
         ${section('Machine', kvRow('Machine', report.machine) + kvRow('Installation date', dateText(report.installation_date)) + kvRow('Shot C', report.shot_count, true) + kvRow('Cleaning C', report.cleaning_count, true) + kvRow('Bar', report.pressure_bar, true) + kvRow('Last cleaning', lastClean) + kvRow('Cancelled shots last 24 hours', report.cancelled_shots_24h, true))}
         ${section('Notes', block('Notes', report.notes))}
       </div>

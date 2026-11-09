@@ -33,7 +33,8 @@ Where each field the team already uses lives in OctaOps. No real data here, only
 | Time In / Time Out | `reports.time_in` / `time_out` |
 | Overtime | `reports.overtime` |
 | second Issue | `reports.issue_found` |
-| Resolution | `reports.resolution` |
+| Resolution (shown as "Resolution Summary") | `reports.resolution` |
+| Recommendations (new, free text for the next visit) | `reports.recommendations` |
 | Parts | `reports.parts_text` (free text, as written today). Parts picked from the catalog will go to `job_parts` |
 | Machine | `reports.machine` |
 | Installation date | `reports.installation_date` |

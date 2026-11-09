@@ -11,7 +11,8 @@ const LABELS = [
   ['time_in', /^time ?in$/],
   ['time_out', /^time ?out$/],
   ['overtime', /^(overtime|ot)$/],
-  ['resolution', /^resolution$/],
+  ['resolution', /^resolution( summary)?$/],
+  ['recommendations', /^(recommendations?|recs?)$/],
   ['parts', /^parts?( used)?$/],
   ['machine', /^machine$/],
   ['shot_count', /^shots? ?c(ount)?$/],
@@ -24,7 +25,7 @@ const LABELS = [
   ['notes', /^notes?$/],
 ];
 
-const MULTILINE = new Set(['address', 'dispatch_issue', 'issue_found', 'resolution', 'parts', 'notes']);
+const MULTILINE = new Set(['address', 'dispatch_issue', 'issue_found', 'resolution', 'recommendations', 'parts', 'notes']);
 
 export const DISPLAY = {
   visit_date: 'Date',
@@ -32,7 +33,8 @@ export const DISPLAY = {
   time_out: 'Time out',
   overtime: 'Overtime',
   issue_found: 'Issue found',
-  resolution: 'Resolution',
+  resolution: 'Resolution Summary',
+  recommendations: 'Recommendations',
   parts_text: 'Parts',
   machine: 'Machine',
   installation_date: 'Installation date',
@@ -217,6 +219,7 @@ export function parseReport(text, options = {}) {
   }
   if (raw.issue_found) fields.issue_found = raw.issue_found;
   if (raw.resolution) fields.resolution = raw.resolution;
+  if (raw.recommendations) fields.recommendations = raw.recommendations;
   if (raw.parts) fields.parts_text = raw.parts;
   if (raw.machine) fields.machine = raw.machine;
   date('installation_date', 'installation_date');

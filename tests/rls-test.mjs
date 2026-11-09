@@ -22,7 +22,7 @@ const files = [
   'migrations/0001_init.sql', 'migrations/0002_parts_page.sql', 'migrations/0003_grants.sql',
   'migrations/0004_dispatch_and_report_fields.sql', 'migrations/0005_one_report_per_job.sql',
   'migrations/0006_report_parts_text.sql', 'migrations/0007_parts_hand_checked.sql', 'migrations/0008_timesheets.sql',
-  'migrations/0009_timesheet_lunch.sql', 'migrations/0010_submit_report.sql',
+  'migrations/0009_timesheet_lunch.sql', 'migrations/0010_submit_report.sql', 'migrations/0011_report_recommendations.sql',
 ];
 for (const f of files) await db.exec(readFileSync(root + f, 'utf8'));
 console.log('ok   all migrations apply');

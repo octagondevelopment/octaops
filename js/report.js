@@ -6,7 +6,7 @@ export const STEPS = [
   { id: 'notes', title: 'Notes' },
 ];
 
-export const REPORT_COLUMNS = 'id, job_id, status, visit_date, time_in, time_out, overtime, issue_found, resolution, parts_text, machine, installation_date, shot_count, cleaning_count, pressure_bar, last_cleaning_at, cancelled_shots_24h, notes';
+export const REPORT_COLUMNS = 'id, job_id, status, visit_date, time_in, time_out, overtime, issue_found, resolution, recommendations, parts_text, machine, installation_date, shot_count, cleaning_count, pressure_bar, last_cleaning_at, cancelled_shots_24h, notes';
 
 const pad = (n) => String(n).padStart(2, '0');
 const localDate = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
@@ -24,6 +24,7 @@ export function emptyDraft(job) {
     overtime: false,
     issue_found: '',
     resolution: '',
+    recommendations: '',
     parts_text: '',
     machine: job.asset_name || '',
     installation_date: job.asset_install_date || '',
@@ -53,6 +54,7 @@ export function rowToDraft(row, job) {
     overtime: !!row.overtime,
     issue_found: row.issue_found ?? '',
     resolution: row.resolution ?? '',
+    recommendations: row.recommendations ?? '',
     parts_text: row.parts_text ?? '',
     machine: row.machine ?? base.machine,
     installation_date: row.installation_date ?? base.installation_date,
@@ -95,6 +97,7 @@ export function draftToRow(d, technicianId) {
     overtime: !!d.overtime,
     issue_found: orNull(d.issue_found),
     resolution: orNull(d.resolution),
+    recommendations: orNull(d.recommendations),
     parts_text: orNull(d.parts_text),
     machine: orNull(d.machine),
     installation_date: orNull(d.installation_date),
@@ -150,7 +153,8 @@ export function stepHtml(stepId, d, locked) {
   if (stepId === 'work') {
     return `<h2 class="step-title">Work done</h2>
       ${area('Issue found', 'issue_found', d, locked, 4, 'What you found when you arrived.')}
-      ${area('Resolution', 'resolution', d, locked, 7, 'What you did to fix it. No length limit.')}
+      ${area('Resolution Summary', 'resolution', d, locked, 7, 'What you did to fix it. No length limit.')}
+      ${area('Recommendations', 'recommendations', d, locked, 3, 'For the next visit, for example "replace the filters next time".')}
       ${area('Parts used', 'parts_text', d, locked, 3, 'Part numbers and quantities, as you write them today.')}`;
   }
   if (stepId === 'machine') {

@@ -208,7 +208,7 @@ function missingForSubmit(d) {
   const missing = [];
   if (!d.time_in) missing.push(['Time in', 0]);
   if (!d.time_out) missing.push(['Time out', 0]);
-  if (!String(d.resolution || '').trim()) missing.push(['Resolution', 1]);
+  if (!String(d.resolution || '').trim()) missing.push(['Resolution Summary', 1]);
   return missing;
 }
 
@@ -228,7 +228,7 @@ async function submitReport() {
   const { error } = await sb.rpc('submit_report', { p_job_id: d.job_id });
   s.busy = false;
   if (error) {
-    s.error = /Report incomplete/.test(error.message) ? 'Add time in, time out and a resolution first.'
+    s.error = /Report incomplete/.test(error.message) ? 'Add time in, time out and a resolution summary first.'
       : /Already sent/.test(error.message) ? 'This report was already sent.'
       : navigator.onLine ? "Couldn't send the report. Try again." : "You're offline. Connect to send the report.";
     return render();
@@ -585,6 +585,7 @@ function render() {
   }
   const r = route();
   if (r.view === 'review') {
+    if (!state.profile) { app.innerHTML = '<main class="screen"><div class="screen-body"><div class="empty"><p>Loading…</p></div></div></main>'; return; }
     if (!isAdmin()) { location.hash = '#/'; return; }
     const report = state.review.rows.find((x) => x.id === r.id);
     const job = report ? state.jobs?.find((j) => j.id === report.job_id) : null;

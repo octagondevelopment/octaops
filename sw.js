@@ -1,4 +1,4 @@
-const CACHE = 'octaops-shell-v10';
+const CACHE = 'octaops-shell-v11';
 const SHELL = [
   './',
   'index.html',

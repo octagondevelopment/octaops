@@ -149,3 +149,19 @@ test('warns when the text belongs to another job', () => {
   assert.match(w[0], /WT 34500001/);
   assert.equal(checkJob(r.info, { work_task_number: '34500001', store_number: '9999' }).length, 1);
 });
+
+test('reads Resolution Summary and Recommendations, with several lines each', () => {
+  const r = parseReport(`Resolution Summary: Replaced burrs
+and recalibrated.
+Recommendations: Replace the filters next time.
+Check the drip tray in two weeks.
+Parts : 2x 128.386
+NOTES: ok`, opts);
+  assert.equal(r.fields.resolution, 'Replaced burrs\nand recalibrated.');
+  assert.equal(r.fields.recommendations, 'Replace the filters next time.\nCheck the drip tray in two weeks.');
+  assert.equal(r.fields.parts_text, '2x 128.386');
+  assert.equal(r.fields.notes, 'ok');
+  const old = parseReport('Resolution: done\nRecs: next visit', opts);
+  assert.equal(old.fields.resolution, 'done');
+  assert.equal(old.fields.recommendations, 'next visit');
+});
