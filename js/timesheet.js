@@ -38,6 +38,50 @@ export function totalsByDay(entries, days, now = new Date()) {
 
 export const sumMs = (totals) => Object.values(totals).reduce((a, b) => a + b, 0);
 
+// ---- Paid hours and overtime (British Columbia rules, to be confirmed with accounting) ----
+// Lunch is unpaid. Overtime: 1.5x after 8 h in a day and after 40 h in a week (only the first
+// 8 h of each day count toward the week), 2x after 12 h in a day.
+export const HOUR = 3600000;
+export const DAILY_REGULAR = 8 * HOUR;
+export const DAILY_DOUBLE = 12 * HOUR;
+export const WEEKLY_REGULAR = 40 * HOUR;
+export const LUNCH_REQUIRED_AFTER = 5 * HOUR;
+
+export function lunchMs(entry, now = new Date()) {
+  if (!entry.lunch_start) return 0;
+  const end = entry.lunch_end ? new Date(entry.lunch_end) : entry.clock_out ? new Date(entry.clock_out) : now;
+  return Math.max(0, end - new Date(entry.lunch_start));
+}
+
+export const paidMs = (entry, now = new Date()) => Math.max(0, entryMs(entry, now) - lunchMs(entry, now));
+
+export const onLunch = (entry) => !!entry && !!entry.lunch_start && !entry.lunch_end && !entry.clock_out;
+
+// A shift of more than 5 hours with no lunch logged.
+export const missedLunch = (entry, now = new Date()) => !entry.lunch_start && entryMs(entry, now) > LUNCH_REQUIRED_AFTER;
+
+export function paidByDay(entries, days, now = new Date()) {
+  const totals = Object.fromEntries(days.map((d) => [d, 0]));
+  for (const e of entries) if (e.work_date in totals) totals[e.work_date] += paidMs(e, now);
+  return totals;
+}
+
+// byDay: { 'YYYY-MM-DD': paid ms } for one week -> total, regular, overtime (1.5x) and double (2x), all in ms.
+export function splitHours(byDay) {
+  let total = 0;
+  let regularSum = 0;
+  let overtime = 0;
+  let double = 0;
+  for (const ms of Object.values(byDay)) {
+    total += ms;
+    regularSum += Math.min(ms, DAILY_REGULAR);
+    overtime += Math.min(Math.max(ms - DAILY_REGULAR, 0), DAILY_DOUBLE - DAILY_REGULAR);
+    double += Math.max(ms - DAILY_DOUBLE, 0);
+  }
+  const weekly = Math.max(0, regularSum - WEEKLY_REGULAR);
+  return { total, regular: regularSum - weekly, overtime: overtime + weekly, double };
+}
+
 // 27900000 -> "7:45"
 export function formatDuration(ms) {
   const minutes = Math.floor(Math.max(0, ms) / 60000);

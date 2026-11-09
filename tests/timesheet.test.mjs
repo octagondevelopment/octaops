@@ -1,7 +1,11 @@
 // Run with: node --test tests/timesheet.test.mjs
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { vancouverDate, addDays, weekStart, weekDays, totalsByDay, sumMs, formatDuration, formatWeek, toLocalInput, fromLocalInput, entryMs } from '../js/timesheet.js';
+import { vancouverDate, addDays, weekStart, weekDays, totalsByDay, sumMs, formatDuration, formatWeek, toLocalInput, fromLocalInput, entryMs, HOUR, lunchMs, paidMs, onLunch, missedLunch, paidByDay, splitHours } from '../js/timesheet.js';
+
+const h = (n) => n * HOUR;
+const week = (...hours) => Object.fromEntries(hours.map((x, i) => [`2026-11-${String(9 + i).padStart(2, '0')}`, h(x)]));
+const split = (...hours) => Object.fromEntries(Object.entries(splitHours(week(...hours))).map(([k, v]) => [k, v / HOUR]));
 
 test('vancouver date follows local time, not UTC', () => {
   assert.equal(vancouverDate(new Date('2026-11-10T07:30:00Z')), '2026-11-09'); // 23:30 PST on Nov 9
@@ -53,4 +57,60 @@ test('datetime-local conversion round-trips in Vancouver time', () => {
   assert.equal(fromLocalInput(''), null);
   assert.equal(fromLocalInput('not a date'), null);
   assert.equal(toLocalInput(null), '');
+});
+
+test('lunch is unpaid and subtracted', () => {
+  const shift = { work_date: '2026-11-09', clock_in: '2026-11-09T16:00:00Z', clock_out: '2026-11-10T00:30:00Z', lunch_start: '2026-11-09T20:00:00Z', lunch_end: '2026-11-09T20:30:00Z' };
+  assert.equal(formatDuration(entryMs(shift)), '8:30');
+  assert.equal(formatDuration(lunchMs(shift)), '0:30');
+  assert.equal(formatDuration(paidMs(shift)), '8:00');
+  assert.equal(onLunch(shift), false);
+});
+
+test('an open lunch counts up to now and is not paid', () => {
+  const now = new Date('2026-11-09T20:20:00Z');
+  const shift = { work_date: '2026-11-09', clock_in: '2026-11-09T16:00:00Z', clock_out: null, lunch_start: '2026-11-09T20:00:00Z', lunch_end: null };
+  assert.equal(onLunch(shift), true);
+  assert.equal(formatDuration(lunchMs(shift, now)), '0:20');
+  assert.equal(formatDuration(paidMs(shift, now)), '4:00');
+});
+
+test('a long shift with no lunch is flagged', () => {
+  const now = new Date('2026-11-09T23:00:00Z');
+  assert.equal(missedLunch({ clock_in: '2026-11-09T16:00:00Z', clock_out: '2026-11-09T20:59:00Z' }, now), false); // 4:59
+  assert.equal(missedLunch({ clock_in: '2026-11-09T16:00:00Z', clock_out: '2026-11-09T21:30:00Z' }, now), true);  // 5:30, no lunch
+  assert.equal(missedLunch({ clock_in: '2026-11-09T16:00:00Z', clock_out: '2026-11-09T22:00:00Z', lunch_start: '2026-11-09T19:00:00Z', lunch_end: '2026-11-09T19:30:00Z' }, now), false);
+});
+
+test('daily overtime: 1.5x after 8 hours, 2x after 12', () => {
+  assert.deepEqual(split(8), { total: 8, regular: 8, overtime: 0, double: 0 });
+  assert.deepEqual(split(9), { total: 9, regular: 8, overtime: 1, double: 0 });
+  assert.deepEqual(split(12.5), { total: 12.5, regular: 8, overtime: 4, double: 0.5 });
+  assert.deepEqual(split(14), { total: 14, regular: 8, overtime: 4, double: 2 });
+});
+
+test('weekly overtime: 1.5x after 40 hours, counting only the first 8 of each day', () => {
+  assert.deepEqual(split(9, 9, 9, 9, 9), { total: 45, regular: 40, overtime: 5, double: 0 });   // daily overtime only
+  assert.deepEqual(split(8, 8, 8, 8, 8, 8), { total: 48, regular: 40, overtime: 8, double: 0 }); // weekly overtime only
+  assert.deepEqual(split(10, 10, 10, 10, 10), { total: 50, regular: 40, overtime: 10, double: 0 });
+  assert.deepEqual(split(8, 8, 8, 8, 8, 4, 4), { total: 48, regular: 40, overtime: 8, double: 0 });
+  assert.deepEqual(split(), { total: 0, regular: 0, overtime: 0, double: 0 });
+});
+
+test('the pieces always add up to the total', () => {
+  for (const hours of [[3, 11, 13, 0, 9.5], [8, 8, 8, 8, 8, 8, 8], [1, 2, 3]]) {
+    const s = splitHours(week(...hours));
+    assert.equal(s.regular + s.overtime + s.double, s.total);
+  }
+});
+
+test('paid hours per day use lunch and the Vancouver day', () => {
+  const days = weekDays('2026-11-09');
+  const entries = [
+    { work_date: '2026-11-09', clock_in: '2026-11-09T16:00:00Z', clock_out: '2026-11-10T00:30:00Z', lunch_start: '2026-11-09T20:00:00Z', lunch_end: '2026-11-09T20:30:00Z' },
+    { work_date: '2026-11-10', clock_in: '2026-11-10T16:00:00Z', clock_out: '2026-11-10T20:00:00Z' },
+  ];
+  const paid = paidByDay(entries, days);
+  assert.equal(formatDuration(paid['2026-11-09']), '8:00');
+  assert.equal(formatDuration(paid['2026-11-10']), '4:00');
 });

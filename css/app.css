@@ -266,6 +266,21 @@ a.btn { display: flex; align-items: center; justify-content: center; text-decora
 .entry-side { display: flex; align-items: center; gap: 10px; flex: none; }
 .entry-side .v { font-weight: 700; font-variant-numeric: tabular-nums; }
 .chip-btn.add { margin-top: 12px; }
+.two-btn { display: grid; grid-template-columns: repeat(auto-fit, minmax(0, 1fr)); gap: 10px; }
+.clock-root .card, .clock-root .metric { animation: none; }
+.clock.lunch .clock-time { color: var(--st-amber); }
+.split-line { margin: 2px 0 4px; font-size: 12px; font-weight: 600; color: var(--text2); font-variant-numeric: tabular-nums; }
+.flag { margin: 0 0 4px; font-size: 13px; font-weight: 600; color: var(--st-amber); }
+.flag-chip { display: inline-block; margin-top: 4px; padding: 2px 8px; border-radius: 9999px; background: rgb(var(--st-amber-rgb) / var(--alpha)); color: var(--st-amber); font-size: 11px; font-weight: 700; }
+.lunch-hint { margin: -4px 0 14px; }
+.seg.three { grid-template-columns: repeat(3, 1fr); margin-bottom: 8px; }
+.group .section-title { margin-top: 18px; }
+.preview { margin: 0 0 4px; color: var(--text2); font-size: 14px; overflow-wrap: anywhere; }
+.block { padding: 10px 0; border-top: 1px solid var(--line); }
+.section h3 + .block { border-top: 0; }
+.block .k { display: block; margin-bottom: 4px; color: var(--text2); font-size: 11px; font-weight: 600; }
+.block p { margin: 0; font-size: 15px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.save-later { margin-top: 4px; margin-bottom: 20px; }
 
 /* Empty / status */
 .empty { text-align: center; padding: 48px 12px; }

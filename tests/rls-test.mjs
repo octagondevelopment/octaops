@@ -22,6 +22,7 @@ const files = [
   'migrations/0001_init.sql', 'migrations/0002_parts_page.sql', 'migrations/0003_grants.sql',
   'migrations/0004_dispatch_and_report_fields.sql', 'migrations/0005_one_report_per_job.sql',
   'migrations/0006_report_parts_text.sql', 'migrations/0007_parts_hand_checked.sql', 'migrations/0008_timesheets.sql',
+  'migrations/0009_timesheet_lunch.sql', 'migrations/0010_submit_report.sql',
 ];
 for (const f of files) await db.exec(readFileSync(root + f, 'utf8'));
 console.log('ok   all migrations apply');
@@ -113,6 +114,63 @@ r = await as(null, 'select * from jobs');
 ok('signed-out visitor cannot read jobs', !!r.error, r.error);
 r = await as(A, 'select count(*)::int n from profiles');
 ok('tech A reads only own profile', r.rows?.[0].n === 1, JSON.stringify(r.rows));
+
+// ---- Lunch --------------------------------------------------------------------
+const [C, D] = (await q(`insert into auth.users (email) values ('c@x.invalid'),('d@x.invalid') returning id`)).map((x) => x.id);
+await db.exec(`insert into profiles (id, full_name, role) values ('${C}','Tech C','technician'),('${D}','Tech D','technician')`);
+r = await as(D, 'select * from lunch_start_now()');
+ok('lunch needs a clocked-in shift', /Not clocked in/.test(r.error || ''), r.error);
+await as(C, 'select * from clock_in_now()');
+r = await as(C, 'select * from lunch_end_now()');
+ok('cannot end a lunch that never started', /Not on lunch/.test(r.error || ''), r.error);
+r = await as(C, 'select * from lunch_start_now()');
+ok('tech C can start lunch', !r.error && r.rows[0].lunch_start !== null && r.rows[0].lunch_end === null, r.error);
+r = await as(C, 'select * from lunch_start_now()');
+ok('only one lunch per shift', /Lunch already taken/.test(r.error || ''), r.error);
+r = await as(C, 'select * from clock_out_now()');
+ok('cannot clock out while on lunch', /End your lunch first/.test(r.error || ''), r.error);
+r = await as(C, `update timesheets set lunch_end = now() where technician_id = '${C}' returning id`);
+ok('tech C cannot set lunch times directly', !r.error ? r.rows.length === 0 : true, r.error || 'no rows');
+r = await as(C, 'select * from lunch_end_now()');
+ok('tech C can end lunch', !r.error && r.rows[0].lunch_end !== null, r.error);
+r = await as(C, 'select * from lunch_end_now()');
+ok('lunch cannot be ended twice', /Not on lunch/.test(r.error || ''), r.error);
+r = await as(C, 'select * from clock_out_now()');
+ok('tech C clocks out after lunch', !r.error && r.rows[0].clock_out !== null, r.error);
+r = await as(ADM, `insert into timesheets (technician_id, clock_in, clock_out, lunch_start) values ('${D}','2026-11-02 16:00+00','2026-11-03 00:00+00','2026-11-02 20:00+00')`);
+ok('a closed shift cannot leave lunch open', /timesheets_lunch_closed/.test(r.error || ''), r.error);
+r = await as(ADM, `insert into timesheets (technician_id, clock_in, clock_out, lunch_start, lunch_end) values ('${D}','2026-11-02 16:00+00','2026-11-03 00:00+00','2026-11-03 01:00+00','2026-11-03 01:30+00')`);
+ok('lunch outside the shift is rejected', /timesheets_lunch_inside/.test(r.error || ''), r.error);
+r = await as(ADM, `insert into timesheets (technician_id, clock_in, clock_out, lunch_start, lunch_end) values ('${D}','2026-11-02 16:00+00','2026-11-03 00:00+00','2026-11-02 20:00+00','2026-11-02 20:30+00') returning id`);
+ok('admin can record a shift with lunch', !r.error, r.error);
+
+// ---- Sending a report ----------------------------------------------------------
+await db.exec(`
+  insert into jobs (work_task_number, store_number, status, assigned_to, created_by) values
+    ('J-C1','7','in_progress','${C}','${ADM}'), ('J-C2','8','in_progress','${C}','${ADM}'), ('J-C3','9','pending','${C}','${ADM}');
+`);
+const jc1 = (await q(`select id from jobs where work_task_number='J-C1'`))[0].id;
+const jc2 = (await q(`select id from jobs where work_task_number='J-C2'`))[0].id;
+const jc3 = (await q(`select id from jobs where work_task_number='J-C3'`))[0].id;
+await as(C, `insert into reports (job_id, technician_id, time_in, time_out, resolution) values ('${jc1}','${C}','2026-11-09 16:00+00','2026-11-09 18:00+00','Replaced burrs')`);
+await as(C, `insert into reports (job_id, technician_id, time_in, time_out) values ('${jc2}','${C}','2026-11-09 16:00+00','2026-11-09 18:00+00')`);
+r = await as(C, `select * from submit_report('${jc2}')`);
+ok('an incomplete report cannot be sent', /Report incomplete/.test(r.error || ''), r.error);
+r = await as(C, `select * from submit_report('${jc3}')`);
+ok('cannot send a report that does not exist', /No report to send/.test(r.error || ''), r.error);
+r = await as(A, `select * from submit_report('${jc1}')`);
+ok('another technician cannot send my report', /No report to send/.test(r.error || ''), r.error);
+r = await as(C, `select * from submit_report('${jc1}')`);
+ok('tech C can send a complete report', !r.error && r.rows[0].status === 'submitted' && r.rows[0].submitted_at !== null, r.error);
+ok('sending moves the job to awaiting_approval', (await q(`select status from jobs where id='${jc1}'`))[0].status === 'awaiting_approval');
+r = await as(C, `select * from submit_report('${jc1}')`);
+ok('a report cannot be sent twice', /Already sent/.test(r.error || ''), r.error);
+r = await as(C, `update reports set resolution = 'changed after sending' where job_id = '${jc1}' returning id`);
+ok('a sent report is locked for the technician', !r.error ? r.rows.length === 0 : true, r.error || 'no rows');
+r = await as(null, `select * from submit_report('${jc1}')`);
+ok('signed-out visitor cannot send a report', !!r.error, r.error);
+r = await as(ADM, `select status from reports where job_id = '${jc1}'`);
+ok('admin sees the sent report', r.rows?.[0]?.status === 'submitted', JSON.stringify(r));
 
 console.log(failed ? `\n${failed} check(s) FAILED` : '\nall checks passed');
 process.exit(failed ? 1 : 0);

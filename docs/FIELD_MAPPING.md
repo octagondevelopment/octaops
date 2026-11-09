@@ -59,6 +59,20 @@ Internal Octagon hours, separate from any client system. Table `timesheets`: `te
 - One open entry per person at a time; several entries per day are allowed.
 - Weeks run Monday to Sunday.
 
+**Lunch.** `lunch_start` and `lunch_end` on the entry, one lunch per shift, set with `lunch_start_now()` and
+`lunch_end_now()`. Lunch is unpaid: paid hours = clock out - clock in - lunch. Clocking out is refused while lunch
+is open. A shift of more than 5 hours with no lunch is flagged for the admin.
+
+**Overtime is calculated, not clocked** (rules from British Columbia, to be confirmed with accounting; see
+`js/timesheet.js`): 1.5x after 8 h in a day and after 40 h in a week (only the first 8 h of each day count toward the
+week), 2x after 12 h in a day. Not handled: statutory holidays, averaging agreements, exempt roles.
+
+## Sending a report
+
+`submit_report(job_id)` locks the technician's report and moves the job to `awaiting_approval` in one step. A report
+needs time in, time out and a resolution to be sent. Admins read every report in the Reports tab (grouped by
+technician, read-only).
+
 ## Parts catalog
 
 OctaOps shows only the parts checked by hand against the paper manual. The catalog app keeps that list in

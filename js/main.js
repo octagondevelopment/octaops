@@ -3,14 +3,18 @@ import { getDraft, putDraft, dirtyDrafts, allDrafts } from './db.js';
 import { STEPS, REPORT_COLUMNS, SAVE_TEXT, emptyDraft, rowToDraft, draftToRow, progressHtml, stepHtml } from './report.js';
 import { parseReport, checkJob, matchedRows } from './paste.js';
 import { esc } from './util.js';
-import { vancouverDate, weekStart, addDays, entryMs, formatDuration, toLocalInput, fromLocalInput } from './timesheet.js';
-import { newClockState, newTeamState, clockTab, timesheetsTab, clockOutSheet, timeEditSheet } from './time-view.js';
+import { vancouverDate, weekStart, addDays, toLocalInput, fromLocalInput } from './timesheet.js';
+import { newClockState, newTeamState, clockTab, clockBody, timesheetsTab, clockOutSheet, timeEditSheet } from './time-view.js';
+import { newReviewState, adminReportsTab, reviewScreen } from './review-view.js';
 
 const app = document.getElementById('app');
 const state = {
   clock: newClockState(),
   team: newTeamState(),
+  review: newReviewState(),
   timeEdit: null,
+  submit: { busy: false, error: '' },
+  flash: '',
   step: 0,
   draft: null,
   saveStatus: 'local',
@@ -127,10 +131,16 @@ function jobDetailView(job) {
   const store = job.store_name || (job.store_number ? `Store ${job.store_number}` : 'No store');
   const closed = job.status === 'awaiting_approval' || job.status === 'invoiced';
   const label = closed ? 'View report' : state.hasDraft[job.id] ? 'Continue report' : 'Start report';
+  const sent = isAdmin() ? state.review.rows.find((x) => x.job_id === job.id) : null;
+  const bar = isAdmin()
+    ? (sent ? `<div class="sticky-bar"><a class="btn" href="#/review/${esc(sent.id)}">View report</a></div>` : '')
+    : `<div class="sticky-bar"><a class="btn" href="#/job/${esc(job.id)}/report">${label}</a></div>`;
+  const flash = state.flash?.job === job.id ? `<p class="success" role="status">${esc(state.flash.text)}</p>` : '';
   const photos = (job.photo_urls || []).map((u, i) => kv(`Photo ${i + 1}`, 'Open photo', u)).join('');
   return `<main class="screen">
     <div class="screen-body">
       <a class="back" href="#/">${ICON_BACK}<span>Jobs</span></a>
+      ${flash}
       <header class="detail-head">
         <div class="job-head"><h1 class="detail-title">${esc(store)}</h1>${chipsHtml(job)}</div>
         <p class="job-meta"><b>#${esc(job.work_task_number)}</b>${job.priority ? ` · ${esc(job.priority)}` : ''}</p>
@@ -143,7 +153,7 @@ function jobDetailView(job) {
         ${section('Equipment', [kv('Asset', job.asset_name), kv('Tag', job.asset_tag, '', true), kv('Serial number', job.serial_number, '', true), kv('Error code', job.error_code, '', true), kv('Installed', fmtDate(job.asset_install_date)), kv('Partner serial', job.partner_serial)])}
       </div>
     </div>
-    <div class="sticky-bar"><a class="btn" href="#/job/${esc(job.id)}/report">${label}</a></div>
+    ${bar}
   </main>`;
 }
 
@@ -168,15 +178,70 @@ function reportView(job) {
       ${ref}
       ${banner}
       ${note}
+      ${state.submit.error && state.sheet !== 'submit' ? `<p class="warn" role="alert">${esc(state.submit.error)}</p>` : ''}
       ${progressHtml(state.step)}
       <div class="step-body">${stepHtml(STEPS[state.step].id, d, locked)}</div>
+      ${last && !locked ? '<button class="btn btn-quiet save-later" data-action="finish">Save draft and close</button>' : ''}
     </div>
     <div class="sticky-bar actions">
       <button class="btn btn-quiet" data-action="step-back">${state.step === 0 ? 'Close' : 'Back'}</button>
-      <button class="btn" data-action="${last ? 'finish' : 'step-next'}">${last ? 'Save and close' : 'Next'}</button>
+      <button class="btn" data-action="${last ? (locked ? 'finish' : 'ask-submit') : 'step-next'}">${last ? (locked ? 'Close' : 'Review and send') : 'Next'}</button>
     </div>
     ${state.paste.open ? pasteSheet(job) : ''}
+    ${state.sheet === 'submit' ? submitSheet() : ''}
   </main>`;
+}
+
+function submitSheet() {
+  const s = state.submit;
+  return `<div class="scrim" data-action="close-sheet"><div class="sheet" role="dialog" aria-label="Send report" data-stop>
+    <h2>Send this report?</h2>
+    <p class="role">The office will review it. You can't edit it after you send it.</p>
+    ${s.error ? `<p class="error" role="alert">${esc(s.error)}</p>` : ''}
+    <button class="btn" data-action="confirm-submit" ${s.busy ? 'disabled' : ''}>${s.busy ? 'Sending…' : 'Send report'}</button>
+    <button class="btn btn-quiet" data-action="close-sheet">Keep editing</button>
+  </div></div>`;
+}
+
+// What a report needs before it can be sent, and the step where it is filled in.
+function missingForSubmit(d) {
+  const missing = [];
+  if (!d.time_in) missing.push(['Time in', 0]);
+  if (!d.time_out) missing.push(['Time out', 0]);
+  if (!String(d.resolution || '').trim()) missing.push(['Resolution', 1]);
+  return missing;
+}
+
+async function submitReport() {
+  const d = state.draft;
+  const s = state.submit;
+  if (!d || s.busy) return;
+  s.busy = true;
+  s.error = '';
+  render();
+  await syncNow();
+  if (d.dirty || state.saveStatus === 'error' || state.saveStatus === 'offline') {
+    s.busy = false;
+    s.error = "Couldn't save your report to the server first. Check your connection and try again.";
+    return render();
+  }
+  const { error } = await sb.rpc('submit_report', { p_job_id: d.job_id });
+  s.busy = false;
+  if (error) {
+    s.error = /Report incomplete/.test(error.message) ? 'Add time in, time out and a resolution first.'
+      : /Already sent/.test(error.message) ? 'This report was already sent.'
+      : navigator.onLine ? "Couldn't send the report. Try again." : "You're offline. Connect to send the report.";
+    return render();
+  }
+  d.status = 'submitted';
+  d.dirty = false;
+  await putDraft(d);
+  state.reportStatus[d.job_id] = 'submitted';
+  const job = state.jobs.find((j) => j.id === d.job_id);
+  if (job) job.status = 'awaiting_approval';
+  state.sheet = false;
+  state.flash = { text: 'Report sent. The office will review it.', job: d.job_id };
+  location.hash = `#/job/${d.job_id}`;
 }
 
 // A field counts as filled only if the technician changed it: values the app
@@ -242,6 +307,8 @@ function applyPaste(mode) {
 }
 
 function route() {
+  const rev = location.hash.match(/^#\/review\/([\w-]+)$/);
+  if (rev) return { view: 'review', id: rev[1] };
   const m = location.hash.match(/^#\/job\/([0-9a-fA-F-]+)(\/report)?$/);
   return m ? { view: m[2] ? 'report' : 'job', id: m[1] } : { view: 'list' };
 }
@@ -387,6 +454,7 @@ function tabBody() {
   if (state.tab === 'clock') return clockTab(state.clock);
   if (state.tab === 'timesheets') return timesheetsTab(state.team);
   if (state.tab === 'parts') return partsTab();
+  if (isAdmin()) return adminReportsTab(state.review, Object.fromEntries((state.jobs || []).map((j) => [j.id, j])));
   return reportsTab();
 }
 
@@ -516,9 +584,17 @@ function render() {
     return;
   }
   const r = route();
+  if (r.view === 'review') {
+    if (!isAdmin()) { location.hash = '#/'; return; }
+    const report = state.review.rows.find((x) => x.id === r.id);
+    const job = report ? state.jobs?.find((j) => j.id === report.job_id) : null;
+    const person = report ? state.review.people.find((p) => p.id === report.technician_id) : null;
+    app.innerHTML = reviewScreen(report, job, person, state.review);
+    return;
+  }
   const job = r.view === 'list' ? null : state.jobs?.find((j) => j.id === r.id);
   if (r.view === 'job') app.innerHTML = jobDetailView(job);
-  else if (r.view === 'report') app.innerHTML = reportView(job);
+  else if (r.view === 'report') app.innerHTML = isAdmin() ? jobDetailView(job) : reportView(job);
   else app.innerHTML = homeView();
 }
 
@@ -540,6 +616,7 @@ async function loadHome() {
   state.partsError = parts.error ? "Couldn't load the parts catalog. Check your connection and reopen the app." : '';
   state.parts = parts.data || [];
   render();
+  if (isAdmin()) loadAdminReports();
   enterRoute();
 }
 
@@ -563,11 +640,29 @@ async function signIn(form) {
 }
 
 // ---- Time clock and timesheets ------------------------------------------------
+// Two different apps in one: the technician clocks and writes reports; the office reads everything.
 function tabsFor() {
-  const tabs = [['jobs', 'Jobs'], ['clock', 'Clock']];
-  if (isAdmin()) tabs.push(['timesheets', 'Timesheets']);
-  tabs.push(['parts', 'Parts'], ['reports', 'Reports']);
-  return tabs;
+  return isAdmin()
+    ? [['jobs', 'Jobs'], ['timesheets', 'Timesheets'], ['reports', 'Reports'], ['parts', 'Parts']]
+    : [['jobs', 'Jobs'], ['clock', 'Clock'], ['parts', 'Parts'], ['reports', 'Reports']];
+}
+
+async function loadAdminReports() {
+  if (!state.session || !isAdmin()) return;
+  const rv = state.review;
+  const [reports, people] = await Promise.all([
+    sb.from('reports').select(`${REPORT_COLUMNS}, technician_id, submitted_at`).order('created_at', { ascending: false }),
+    sb.from('profiles').select('id, full_name, role').order('full_name', { ascending: true }),
+  ]);
+  if (reports.error || people.error) {
+    rv.error = "Couldn't load the reports. Check your connection and try again.";
+  } else {
+    rv.error = '';
+    rv.rows = reports.data || [];
+    rv.people = people.data || [];
+    rv.loaded = true;
+  }
+  render();
 }
 
 async function loadMine() {
@@ -612,15 +707,19 @@ async function loadTeam() {
 
 const clockProblem = (error) => (/Already clocked in/.test(error.message) ? "You're already clocked in."
   : /Not clocked in/.test(error.message) ? "You're not clocked in."
+  : /End your lunch first/.test(error.message) ? 'End your lunch before you clock out.'
+  : /Lunch already taken/.test(error.message) ? 'You already took your lunch on this shift.'
+  : /Not on lunch/.test(error.message) ? "You're not on lunch."
   : navigator.onLine ? "Couldn't save that. Try again." : "You're offline. The clock needs a connection so the time is exact.");
 
-async function clockIn() {
+// One call to the server, then reload the hours. Used by clock in, lunch start and lunch end.
+async function clockCall(rpcName) {
   const c = state.clock;
   if (c.busy) return;
   c.busy = true;
   c.error = '';
   render();
-  const { error } = await sb.rpc('clock_in_now');
+  const { error } = await sb.rpc(rpcName);
   c.busy = false;
   if (error) c.error = clockProblem(error);
   await loadMine();
@@ -643,8 +742,8 @@ async function clockOut() {
 function startEdit(entry, technicianId) {
   const person = state.team.people.find((p) => p.id === technicianId);
   state.timeEdit = entry
-    ? { id: entry.id, technician_id: entry.technician_id, name: person?.full_name || 'Entry', clock_in: toLocalInput(entry.clock_in), clock_out: toLocalInput(entry.clock_out), note: entry.note || '', error: '', busy: false }
-    : { id: null, technician_id: technicianId, name: person?.full_name || 'Person', clock_in: `${vancouverDate()}T08:00`, clock_out: '', note: '', error: '', busy: false };
+    ? { id: entry.id, technician_id: entry.technician_id, name: person?.full_name || 'Entry', clock_in: toLocalInput(entry.clock_in), clock_out: toLocalInput(entry.clock_out), lunch_start: toLocalInput(entry.lunch_start), lunch_end: toLocalInput(entry.lunch_end), note: entry.note || '', error: '', busy: false }
+    : { id: null, technician_id: technicianId, name: person?.full_name || 'Person', clock_in: `${vancouverDate()}T08:00`, clock_out: '', lunch_start: '', lunch_end: '', note: '', error: '', busy: false };
   state.sheet = 'timeedit';
   render();
 }
@@ -657,16 +756,26 @@ async function saveEntry() {
   if (!clockInIso) { ed.error = 'Enter a valid clock-in time.'; return render(); }
   if (ed.clock_out && !clockOutIso) { ed.error = 'Enter a valid clock-out time.'; return render(); }
   if (clockOutIso && new Date(clockOutIso) <= new Date(clockInIso)) { ed.error = 'Clock out must be after clock in.'; return render(); }
+  const lunchStartIso = ed.lunch_start ? fromLocalInput(ed.lunch_start) : null;
+  const lunchEndIso = ed.lunch_end ? fromLocalInput(ed.lunch_end) : null;
+  if ((ed.lunch_start && !lunchStartIso) || (ed.lunch_end && !lunchEndIso)) { ed.error = 'Enter valid lunch times.'; return render(); }
+  if (lunchEndIso && !lunchStartIso) { ed.error = 'Add the lunch start time.'; return render(); }
+  if (lunchStartIso && lunchEndIso && new Date(lunchEndIso) <= new Date(lunchStartIso)) { ed.error = 'Lunch must end after it starts.'; return render(); }
+  if (lunchStartIso && new Date(lunchStartIso) < new Date(clockInIso)) { ed.error = 'Lunch cannot start before the shift.'; return render(); }
+  if (clockOutIso && lunchStartIso && !lunchEndIso) { ed.error = 'Add the lunch end time, or clear the lunch.'; return render(); }
+  if (clockOutIso && lunchEndIso && new Date(lunchEndIso) > new Date(clockOutIso)) { ed.error = 'Lunch must end before the shift does.'; return render(); }
   ed.busy = true;
   ed.error = '';
   render();
-  const row = { clock_in: clockInIso, clock_out: clockOutIso, note: ed.note.trim() || null, edited_by: state.session.user.id, edited_at: new Date().toISOString() };
+  const row = { clock_in: clockInIso, clock_out: clockOutIso, lunch_start: lunchStartIso, lunch_end: lunchEndIso, note: ed.note.trim() || null, edited_by: state.session.user.id, edited_at: new Date().toISOString() };
   const { error } = ed.id
     ? await sb.from('timesheets').update(row).eq('id', ed.id)
     : await sb.from('timesheets').insert({ ...row, technician_id: ed.technician_id });
   ed.busy = false;
   if (error) {
-    ed.error = error.code === '23505' ? 'This person already has an open entry. Close it first.' : "Couldn't save the entry. Try again.";
+    ed.error = error.code === '23505' ? 'This person already has an open entry. Close it first.'
+      : error.code === '23514' ? 'Those times do not fit together. Check the shift and the lunch.'
+      : "Couldn't save the entry. Try again.";
     return render();
   }
   state.sheet = false;
@@ -764,6 +873,7 @@ app.addEventListener('click', async (e) => {
     render();
     if (state.tab === 'clock') loadMine();
     if (state.tab === 'timesheets') loadTeam();
+    if (state.tab === 'reports' && isAdmin()) loadAdminReports();
     return;
   }
   const el = e.target.closest('[data-action]');
@@ -818,7 +928,25 @@ app.addEventListener('click', async (e) => {
       await syncNow();
       location.hash = `#/job/${route().id}`;
       break;
-    case 'clock-in': clockIn(); break;
+    case 'clock-in': clockCall('clock_in_now'); break;
+    case 'lunch-start': clockCall('lunch_start_now'); break;
+    case 'lunch-end': clockCall('lunch_end_now'); break;
+    case 'report-filter': state.review.filter = el.dataset.value; render(); break;
+    case 'ask-submit': {
+      const missing = missingForSubmit(state.draft);
+      if (missing.length) {
+        state.submit.error = `Before you send, add: ${missing.map((x) => x[0]).join(', ')}.`;
+        state.step = Math.min(...missing.map((x) => x[1]));
+        state.sheet = false;
+      } else {
+        state.submit.error = '';
+        state.sheet = 'submit';
+      }
+      render();
+      window.scrollTo(0, 0);
+      break;
+    }
+    case 'confirm-submit': submitReport(); break;
     case 'ask-clock-out': state.sheet = 'clockout'; render(); break;
     case 'confirm-clock-out': clockOut(); break;
     case 'week-prev':
@@ -869,6 +997,9 @@ sb.auth.onAuthStateChange((event, session) => {
     state.draft = null;
     state.clock = newClockState();
     state.team = newTeamState();
+    state.review = newReviewState();
+    state.flash = null;
+    state.submit = { busy: false, error: '' };
     state.timeEdit = null;
     state.sheet = false;
     return render();
@@ -884,15 +1015,18 @@ app.addEventListener('error', (e) => {
 }, true);
 
 window.addEventListener('hashchange', () => {
+  const r = route();
+  if (state.flash && !(r.view === 'job' && r.id === state.flash.job)) state.flash = null;
   syncNow();
   render();
   window.scrollTo(0, 0);
   enterRoute();
 });
 window.addEventListener('online', flushAll);
+// Keep the clock numbers live without redrawing the whole screen.
 setInterval(() => {
-  const el = document.getElementById('clock-elapsed');
-  if (el && state.clock.open) el.textContent = formatDuration(entryMs(state.clock.open));
+  const root = document.getElementById('clock-root');
+  if (root && state.tab === 'clock' && !state.sheet) root.innerHTML = clockBody(state.clock);
 }, 30000);
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'hidden') syncNow();
